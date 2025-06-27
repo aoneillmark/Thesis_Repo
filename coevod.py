@@ -211,7 +211,10 @@ class CoCoEvo:
 
         self.test_calls = [1 for _ in range(self.iterator_rounds)]
 
-        assert sum(self.code_crossover_nums) + sum(self.code_mutation_nums) + self.code_population_nums == self.code_config['max_generations'], f'''code_calls: {self.code_calls}, sum: {sum(self.code_calls)}'''
+        # assert sum(self.code_crossover_nums) + sum(self.code_mutation_nums) + self.code_population_nums == self.code_config['max_generations'], f'''code_calls: {self.code_calls}, sum: {sum(self.code_calls)}'''
+        total_generated = sum(self.code_crossover_nums) + sum(self.code_mutation_nums) + self.code_population_nums
+        assert total_generated == self.code_config['max_generations'], f"Mismatch: total generated {total_generated} vs expected {self.code_config['max_generations']}"
+
         assert sum(self.test_calls) == self.test_config['max_generations'], f'''test_calls: {self.test_calls}, sum: {sum(self.test_calls)}'''
 
         print(f'''\
@@ -519,6 +522,7 @@ max_generations: {self.test_config['max_generations']}
                 total_time_limit=self.total_time_limit
             )
             program_feedback = cov['feedback']
+            # program_feedback = cov.get('feedback', '')
 
         # generate test offspring
         gen = test_generator.generate_population(

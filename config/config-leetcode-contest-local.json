@@ -1,0 +1,104 @@
+{
+    "dataset": {
+        "name": "leetcode",
+        "dataset_file": "data/leetcode_contest.jsonl"
+    },
+    "model": {
+        "model_type": "local",
+        "name": "qwen3-7b-local",
+        "model_path": "/vol/bitbucket/mo1024/models/qwen3-1.7b"
+    },
+    "gen_tests": {
+        "generations": 3,
+        "temperature": 0.7,
+        "max_tokens": 512
+    },
+    "gen_tests_eval": {
+        "tests": "gen_tests"
+    },
+    "sampling": {
+        "sampling_nums": 10,
+        "temperature": 0.7,
+        "max_tokens": 512
+    },
+    "sampling_filtering": {
+        "codes": "sampling",
+        "max_codes": 10,
+        "tests": "gen_tests",
+        "max_tests_generations": 2,
+        "max_tests_per_generation": 5
+    },
+    "codet": {
+        "codes": "sampling",
+        "max_codes": 10,
+        "tests": "gen_tests",
+        "max_tests_generations": 2,
+        "max_tests_per_generation": 5
+    },
+    "mbr_exec": {
+        "codes": "sampling",
+        "max_codes": 10,
+        "tests": "gen_tests",
+        "max_tests_generations": 2,
+        "max_tests_per_generation": 5
+    },
+    "reflexion": {
+        "iterator_rounds": 5,
+        "tests": "gen_tests",
+        "max_tests_generations": 2,
+        "max_tests_per_generation": 5,
+        "max_message_tokens": 128,
+        "max_tokens": 512,
+        "temperature": 0.3
+    },
+    "self_repair": {
+        "codes": "sampling",
+        "init_nums": 5,
+        "tests": "gen_tests",
+        "max_tests_generations": 2,
+        "max_tests_per_generation": 5,
+        "max_tokens": 512,
+        "temperature": 0.7
+    },
+    "coevo": {
+        "code": {
+            "population_nums": 2,
+            "max_generations": 6,
+            "selection": {
+                "selection_algo": "greedy"
+            },
+            "fitness_function": "codet_sqrt",
+            "max_tokens": 512,
+            "temperature": 0.7,
+            "scheduler": {
+                "func": "cosine",
+                "start_rate": 0.0,
+                "end_rate": 1.0
+            },
+            "crossover": {
+                "selection_algo": "tournament_2"
+            },
+            "mutation": {
+                "selection_algo": "random"
+            }
+        },
+        "test": {
+            "population_nums": 2,
+            "max_generations": 3,
+            "max_tests_per_generation": 5,
+            "selection": {
+                "selection_algo": "pareto",
+                "filter_algo": "avg"
+            },
+            "fitness_function": "mix",
+            "max_tokens": 512,
+            "temperature": 0.7,
+            "offspring": {
+                "method": "population_and_feedback",
+                "max_feedback_tests": 10
+            }
+        }
+    },
+    "result_dir": "result/leetcode_contest/qwen3-7b-local",
+    "log_dir": "logs/leetcode_contest/qwen3-7b-local"
+}

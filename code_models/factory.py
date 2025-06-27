@@ -10,6 +10,10 @@ def model_factory(
 ) -> ModelBase:
     if model_type == 'api':
         model = APIModels(name, model_path, **args)
+    if model_type == 'local':
+        # from .qwen_local import QwenLocal
+        # return QwenLocal(**kwargs)
+        model = APIModels(name, model_path, **args)
     else:
         raise NotImplementedError
 
