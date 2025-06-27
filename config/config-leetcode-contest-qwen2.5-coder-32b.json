@@ -1,0 +1,130 @@
+{
+    "dataset": {
+        "name": "leetcode",
+        "dataset_file": "data/leetcode_contest.jsonl"
+    },
+    "model": {
+        "model_type": "api",
+        "name": "qwen2.5-coder-32b",
+        "model_path": "Qwen/Qwen2.5-Coder-32B-Instruct"
+    },
+    "gen_tests": {
+        "generations": 10,
+        "temperature": 0.8,
+        "max_tokens": 1024
+    },
+    "gen_tests_eval": {
+        "tests": "gen_tests"
+    },
+    "sampling": {
+        "sampling_nums": 100,
+        "temperature": 0.8,
+        "max_tokens": 1024
+    },
+    "sampling_filtering": {
+        "codes": "sampling",
+        "max_codes": 100,
+        "tests": "gen_tests",
+        "max_tests_generations": 10,
+        "max_tests_per_generation": 10
+    },
+    "codet": {
+        "codes": "sampling",
+        "max_codes": 100,
+        "tests": "gen_tests",
+        "max_tests_generations": 10,
+        "max_tests_per_generation": 10
+    },
+    "mbr_exec": {
+        "codes": "sampling",
+        "max_codes": 100,
+        "tests": "gen_tests",
+        "max_tests_generations": 10,
+        "max_tests_per_generation": 10
+    },
+    "self_repair": {
+        "codes": "sampling",
+        "init_nums": 50,
+        "tests": "gen_tests",
+        "max_tests_generations": 10,
+        "max_tests_per_generation": 10,
+        "max_tokens": 1024,
+        "temperature": 0.8
+    },
+    "reflexion": {
+        "iterator_rounds": 100,
+        "tests": "gen_tests",
+        "max_tests_generations": 10,
+        "max_tests_per_generation": 10,
+        "max_message_tokens": 256,
+        "max_tokens": 1024,
+        "temperature": 0.2
+    },
+    "coevo": {
+        "code": {
+            "population_nums": 10,
+            "max_generations": 100,
+            "selection": {
+                "selection_algo": "greedy"
+            },
+            "fitness_function": "codet_sqrt",
+            "max_tokens": 1024,
+            "temperature": 0.8,
+            "scheduler": {
+                "func": "cosine",
+                "start_rate": 0.0,
+                "end_rate": 1.0
+            },
+            "crossover": {
+                "selection_algo": "tournament_2"
+            },
+            "mutation": {
+                "selection_algo": "random"
+            }
+        },
+        "test": {
+            "population_nums": 10,
+            "max_generations": 10,
+            "max_tests_per_generation": 10,
+            "selection": {
+                "selection_algo": "pareto",
+                "filter_algo": "avg"
+            },
+            "fitness_function": "mix",
+            "max_tokens": 1024,
+            "temperature": 0.8,
+            "offspring": {
+                "method": "population_and_feedback",
+                "max_feedback_tests": 50
+            }
+        }
+    },
+    "evolution": {
+        "population_nums": 10,
+        "max_generations": 100,
+        "fitness_function": "codet_sqrt",
+        "scheduler": {
+            "func": "cosine",
+            "start_rate": 0.0,
+            "end_rate": 1.0
+        },
+        "crossover": {
+            "selection_algo": "tournament_2"
+        },
+        "mutation": {
+            "selection_algo": "random"
+        },
+        "selection": {
+            "selection_algo": "greedy"
+        },
+        "max_tokens": 1024,
+        "temperature": 0.8,
+        "test": {
+            "tests_dir": "gen_tests",
+            "max_generations": 10,
+            "max_tests_per_generation": 10
+        }
+    },
+    "result_dir": "result/leetcode_contest/qwen2.5-coder-32b",
+    "log_dir": "logs/leetcode_contest/qwen2.5-coder-32b"
+}

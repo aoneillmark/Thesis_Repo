@@ -1,0 +1,10 @@
+openai
+tqdm
+transformers
+black
+Levenshtein
+sortedcontainers
+
+pytest
+pytest-cov
+pytest-json-report
