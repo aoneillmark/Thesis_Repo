@@ -24,3 +24,8 @@ def generate_response_with_LLM(text: str):
     )
     
     return (chat_response.choices[0].message.content)
+
+if __name__ == "__main__":
+    # Example usage
+    response = generate_response_with_LLM("What is the capital of France?")
+    print(response)  # Should print "Paris"

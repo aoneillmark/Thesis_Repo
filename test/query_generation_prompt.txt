@@ -1,0 +1,16 @@
+- I have given below:
+1. A question about whether or not the policy defined in a given insurance contract applies in a particular situation
+2. The text of the insurance contract
+3. A Prolog encoding of the insurance contract
+- Encode the question into a Prolog query such that it can be run on the given Prolog encoding of the insurance contract, returning the correct answer to the question.
+- Assume that the agreement has been signed and the premium has been paid (on time). There is no need to encode rules or facts for these conditions.
+- Return only Prolog query in your reply. No explanation is necessary.
+
+- Ensure that:
+1. The output does not redefine, misuse, or conflict with any built-in Prolog predicates.
+2. If dynamic predicates are necessary, they are declared and managed correctly.
+3. All predicates used in the generated Prolog code, including those referenced in the query, are fully defined and error-free to prevent issues like "procedure does not exist."
+4. Logical relationships, conditions, and dependencies in the text are faithfully represented in the Prolog rules to ensure accurate query results.
+5. No absolute dates/times (apart from the claimant’s age) are encoded in your query. Only include dates/times RELATIVE to the effective date of the policy (again, except for age).
+6. Set any facts/rules/parameters in the code such that ALL conditions (for the policy to apply) which are UNRELATED to the above query are satisfied.
+7. Set any facts/rules/parameters in the code such that NO exclusions (which would prevent the policy from applying) which are UNRELATED to the above query are satisfied.

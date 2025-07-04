@@ -1,0 +1,8 @@
+Instructions:
+1.  You will be given a 'Target Program' written in Prolog, which includes comments explaining the predicates.
+2.  You will also be given a 'Test Suite' containing a list of Prolog queries.
+3.  The Program and the Test Suite were created independently and use different vocabularies for the same concepts (e.g., 'insurer/1' vs. 'company/1').
+4.  Your task is to create a JSON mapping from the predicate names and arities in the 'Test Suite' to the equivalent ones in the 'Target Program'.
+5.  Analyze the predicate names, arities, and the comments in the Target Program to determine the correct mapping.
+6.  The JSON output should be a dictionary where keys are from the Test Suite and values are from the Target Program. Use the format "predicate_name/arity".
+7.  If a test predicate has no equivalent in the program, map it to 'null'.

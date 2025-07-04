@@ -1,0 +1,11 @@
+- Given the insurance contract below, translate the document into valid Prolog rules so that I can run a Prolog query on the code regarding whether or not some claim is covered under the policy and receive the correct answer to the question.
+- Please fully define all predicates and DO NOT define any facts, only rules that can be used to answer queries on this insurance contract.
+- Assume that all dates/times in any query to this code (apart from the claimant’s age) will be given RELATIVE to the effective date of the policy (i.e. there will never be a need to calculate the time elapsed between two dates). Take dates RELATIVE TO the effective date into account when writing this encoding.
+- Assume that the agreement has been signed and the premium has been paid (on time). There is no need to encode rules or facts for these conditions.
+- Return only Prolog code in your reply. No explanation is necessary.
+- Ensure that:
+1. The legal text is appropriately translated into correct Prolog rules.
+2. The output does not redefine, misuse, or conflict with any built-in Prolog predicates.
+3. If dynamic predicates are necessary, they are declared and managed correctly.
+4. All predicates used in the generated Prolog code, including those referenced in the query, are fully defined and error-free to prevent issues like 'procedure does not exist.'
+5. Logical relationships, conditions, and dependencies in the text are faithfully represented in the Prolog rules to ensure accurate query results.
