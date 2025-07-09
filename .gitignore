@@ -1,2 +1,7 @@
 venv
 .env
+test/logs/*
+test/evaluation_logs/*
+test/__pycache__/*
+*.pyc
+test/__pycache__/*

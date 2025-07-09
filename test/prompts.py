@@ -25,6 +25,7 @@ PROLOG_GENERATION_PROMPT = """
 3. If dynamic predicates are necessary, they are declared and managed correctly.
 4. All predicates used in the generated Prolog code, including those referenced in the query, are fully defined and error-free to prevent issues like 'procedure does not exist.'
 5. Logical relationships, conditions, and dependencies in the text are faithfully represented in the Prolog rules to ensure accurate query results.
+6. The top-level predicate `is_claim_covered` is defined to check if a claim is covered under the policy, taking into account all relevant conditions and exclusions. 
 
 And importantly: Include a comment around any Prolog code that explains what the code is doing, in plain English.
 - Insurance contract: {contract_text}
@@ -61,6 +62,25 @@ with open("query_generation_prompt.txt", "r", encoding='utf-8') as file:
 # # - Question:{query}
 # # - Insurance contract: {text_content}
 
+# TEST_SUITE_GENERATION_PROMPT = """
+# You are given the text of an insurance contract. Your task is to generate a set of Prolog test cases that query this contract to determine whether or not certain scenarios are covered by the policy.
+
+# Instructions:
+# 1. Return exactly 3 to 5 individual Prolog test cases in the form:
+#    test("label", prolog_goal).
+# 2. Each test case must be a valid Prolog fact, and must include a string label as the first argument and a Prolog goal as the second.
+# 3. Each test case should target a different aspect of the policy — e.g., coverage conditions, exclusions, age requirements, timing, etc.
+# 4. DO NOT include any explanation or text. Only output Prolog code.
+# 5. All test cases must use predicates that would exist in a reasonable encoding of the insurance contract.
+# 6. Assume that all dates/times in any query to this code (apart from the claimant's age) will be given RELATIVE to the effective date of the policy (i.e. there will never be a need to calculate the time elapsed between two dates). Take dates RELATIVE TO the effective date into account when writing this encoding.
+# 7. Assume that the agreement has been signed and the premium has been paid (on time). There is no need to encode rules or facts for these conditions.
+# 8. If using multi-line compound goals, wrap them in parentheses, separated by commas.
+
+# Insurance contract:
+# {contract_text}
+# """
+
+
 TEST_SUITE_GENERATION_PROMPT = """
 You are given the text of an insurance contract. Your task is to generate a set of Prolog test cases that query this contract to determine whether or not certain scenarios are covered by the policy.
 
@@ -71,9 +91,14 @@ Instructions:
 3. Each test case should target a different aspect of the policy — e.g., coverage conditions, exclusions, age requirements, timing, etc.
 4. DO NOT include any explanation or text. Only output Prolog code.
 5. All test cases must use predicates that would exist in a reasonable encoding of the insurance contract.
-6. Assume that all dates/times in any query to this code (apart from the claimant's age) will be given RELATIVE to the effective date of the policy (i.e. there will never be a need to calculate the time elapsed between two dates). Take dates RELATIVE TO the effective date into account when writing this encoding.
-7. Assume that the agreement has been signed and the premium has been paid (on time). There is no need to encode rules or facts for these conditions.
-8. If using multi-line compound goals, wrap them in parentheses, separated by commas.
+6. All test cases must only query the public-facing predicate `is_claim_covered` to determine whether a claim is covered. Do not directly test helper or internal predicates like `is_policy_in_effect`, `policy_canceled`, or `condition_wellness_visit_satisfied`.
+7. Each test case must represent a complete claim scenario and assert whether coverage applies.
+8. If using compound goals (e.g., intermediate variable bindings), wrap them in parentheses, and separate them with commas.
+9. DO NOT use `not`. Use `\+` for negation in Prolog.
+10. Assume that all dates/times in any query to this code (apart from the claimant's age) will be given RELATIVE to the effective date of the policy (i.e., there will never be a need to calculate the time elapsed between two dates). Take dates RELATIVE TO the effective date into account when writing this encoding.
+11. Assume that the agreement has been signed and the premium has been paid (on time). There is no need to encode rules or facts for these conditions.
+12. All dates should be integer values representing days relative to the policy's effective date, e.g., `0` for the effective date, `1` for one day later, etc. Do not use absolute dates or words.
+13. After each test case, include a line with exactly five hash symbols (#####) as a separator.
 
 Insurance contract:
 {contract_text}
@@ -107,4 +132,27 @@ Reasoning Steps:
 {predicates_json}
 
 --- Required JSON Output: Canonical Map ---
+"""
+
+
+DIAGNOSIS_PROMPT = """
+You are an expert in both legal reasoning and logic programming.
+
+Below is a Prolog program meant to encode an insurance contract. It has failed the following test cases.
+
+Your job is to:
+1. Identify the most likely reasons why this encoding failed the tests (e.g., missing rules, incorrect logic, misuse of predicates).
+2. Offer targeted advice to improve the encoding logic for a next version, assuming the base instructions will still be followed.
+3. Do not suggest simply hardcoding the answers to pass tests.
+4. Focus on arity-related issues, as well as incorrect signatures and vocabulary mis-matches. Give specific examples of arity mismatches and vocabulary issues. These cause most of the issues in the tests.
+
+### Contract Prolog Code:
+```
+{prolog_code}
+```
+
+### Failed Test Cases:
+{failed_tests}
+
+Return a short paragraph of explanation, followed by a bullet list of **actionable advice** to improve the next version.
 """
