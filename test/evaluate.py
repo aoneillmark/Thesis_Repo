@@ -56,13 +56,14 @@ class PrologEvaluator:
         """Parses test("label", Goal). Returns goal as a string."""
         test_fact = test_fact.strip().rstrip(".")
 
-        # Match: test("label", Goal)
-        match = re.match(r'test\((?:"[^"]*"|\'[^\']*\')\s*,\s*(.+)\)', test_fact)
+        # Match: test("label", Goal) including multi-line goals
+        match = re.match(r'test\((?:"[^"]*"|\'[^\']*\')\s*,\s*(.+)\)', test_fact, re.DOTALL)
         if match:
             return match.group(1).strip()
 
         # Fallback: treat entire thing as a bare goal
         return test_fact
+
     
     def extract_tests_from_file(self, test_file):
         """Parses full test(...) structures across multiple lines."""
@@ -118,7 +119,7 @@ Failed Tests:
 
 if __name__ == "__main__":
     evaluator = PrologEvaluator()
-    path = "./logs/run_20250707_174337"
+    path = "./logs/run_20250709_154257"
     # path = "./logs/run_20250707_00000"
     if not os.path.exists(path):
         print(f"❌ Error: The specified path '{path}' does not exist.")
