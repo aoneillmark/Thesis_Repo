@@ -119,7 +119,7 @@ Failed Tests:
 
 if __name__ == "__main__":
     evaluator = PrologEvaluator()
-    path = "./logs/run_20250709_154257"
+    path = "./logs/run_20250709_163746"
     # path = "./logs/run_20250707_00000"
     if not os.path.exists(path):
         print(f"❌ Error: The specified path '{path}' does not exist.")

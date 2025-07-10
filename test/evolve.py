@@ -10,7 +10,7 @@ from prompts import DIAGNOSIS_PROMPT
 
 # --- FEEDBACK LOOP EXECUTION ---
 def evolve_with_feedback(contract_text, num_generations=3, num_solutions=3, num_test_cases=10,
-                         regenerate_tests_each_round=True, use_vocabulary=True):
+                         regenerate_tests_each_round=True):
     per_solution_advice = {}
     test_cases_to_reuse = None
     previous_solution_ids = []
@@ -18,7 +18,7 @@ def evolve_with_feedback(contract_text, num_generations=3, num_solutions=3, num_
     for gen in range(1, num_generations + 1):
         print(f"\n\n🧬🔁 === Generation {gen}/{num_generations} === 🔁🧬")
 
-        system = EvolutionarySystem(use_vocabulary=use_vocabulary)
+        system = EvolutionarySystem()
 
         # Generate or reuse test cases
         if regenerate_tests_each_round or not test_cases_to_reuse:
@@ -90,7 +90,6 @@ if __name__ == "__main__":
 
     # --- Ask the user about test case regeneration ---
     regenerate = input("🧪 Regenerate test cases each round? (y/n): ").strip().lower() == "y"
-    use_vocab = input("📚 Use vocabulary canonicalization? (y/n): ").strip().lower() == "y"
 
 
     evolve_with_feedback(
@@ -99,6 +98,5 @@ if __name__ == "__main__":
         num_solutions=3,
         num_test_cases=10,
         regenerate_tests_each_round=regenerate,
-        use_vocabulary=use_vocab
     )
 

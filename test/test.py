@@ -84,117 +84,23 @@ class TestCase:
         self.query_goal = match.group(1) if match else None
         
 
-
-# --- Vocabulary Management Class ---
-class VocabularyManager:
-    """Handles the creation of the global canonical vocabulary."""
-
-    def extract_from_solutions(self, solutions):
-        """Extracts predicates and their comments (or empty) from candidate solutions."""
-        predicates = {}
-        # Match rules with or without comments
-        head_pattern = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*\s*\(.*?\))\s*:-", re.DOTALL)
-        comment_pattern = re.compile(r"%\s*(.*?)\n\s*([a-zA-Z_][a-zA-Z0-9_]*\s*\(.*?\))")
-
-        for sol in solutions:
-            if not sol.original_program:
-                continue
-
-            # Add from commented rules
-            for comment, head in comment_pattern.findall(sol.original_program):
-                sig = get_predicate_signature(head)
-                if sig and sig not in predicates:
-                    predicates[sig] = comment.strip()
-
-            # Add from non-commented rules
-            for head in head_pattern.findall(sol.original_program):
-                sig = get_predicate_signature(head)
-                if sig and sig not in predicates:
-                    predicates[sig] = "No comment (auto-extracted)"
-        
-        return predicates
-
-    
-    def extract_from_test_cases(self, test_cases):
-        """Extracts predicates from individual test cases."""
-        predicates = {}
-        for tc in test_cases:
-            if tc.query_goal:
-                signature = get_predicate_signature(tc.query_goal)
-                if signature and signature not in predicates:
-                    predicates[signature] = "From test case" # Placeholder comment
-        return predicates
-
-    def build_global_map(self, all_predicates, batch_size=15):
-        """Builds the canonical map iteratively."""
-        print("   - 🗺️  Building Global Canonical Map...")
-        canonical_map = {}
-        predicate_items = list(all_predicates.items())
-        for i in range(0, len(predicate_items), batch_size):
-            batch = dict(islice(predicate_items, i, i + batch_size))
-            print(f"     - Processing batch {i//batch_size + 1}...")
-            prompt = GLOBAL_MAPPING_PROMPT.format(
-                prior_map_json=json.dumps(canonical_map, indent=2),
-                predicates_json=json.dumps(batch, indent=2)
-            )
-            map_json_str = generate_content(prompt, is_json=True)
-            if map_json_str:
-                try: canonical_map.update(json.loads(map_json_str))
-                except json.JSONDecodeError: print(f"     - ❌ Failed to parse map from batch.")
-            else: print(f"     - ❌ Failed to generate map from batch.")
-        print("   - ✅ Global map complete.")
-        return canonical_map
-
-    def translate(self, original_text, global_map):
-        """Generic translation function for any piece of Prolog code."""
-        if not original_text: return None
-        translated_text = original_text
-        for original_sig, canonical_sig in global_map.items():
-            original_name = original_sig.split('/')[0]
-            canonical_name = canonical_sig.split('/')[0]
-            if original_name != canonical_name:
-                translated_text = re.sub(r'\b' + re.escape(original_name) + r'\(', canonical_name + '(', translated_text)
-        return translated_text
-
 # --- Main System Class ---
 class EvolutionarySystem:
-    def __init__(self, log_dir=None, use_vocabulary=True):
-        self.use_vocabulary = use_vocabulary
+    def __init__(self, log_dir=None):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.log_dir = log_dir or f"logs/run_{timestamp}"
         os.makedirs(self.log_dir, exist_ok=True)
 
         self.solutions = []
         self.test_cases = []
-        self.vocab_manager = VocabularyManager()
 
     def evaluate_fitness(self):
         print("\n--- 🏆 Starting Fitness Evaluation ---")
 
-        if self.use_vocabulary:
-            # Canonical Mapping Mode
-            sol_preds = self.vocab_manager.extract_from_solutions(self.solutions)
-            tc_preds = self.vocab_manager.extract_from_test_cases(self.test_cases)
-            all_predicates = {**tc_preds, **sol_preds}
-            print(f"   - 💡 Found {len(all_predicates)} unique predicates in total.")
-
-            global_map = self.vocab_manager.build_global_map(all_predicates)
-            print(f"\nFinal Global Map:\n{json.dumps(global_map, indent=2)}")
-
-            print("\n   - ✍️  Translating all assets to canonical vocabulary...")
-            for sol in self.solutions:
-                sol.canonical_program = self.vocab_manager.translate(sol.original_program, global_map)
-            for tc in self.test_cases:
-                tc.canonical_fact = self.vocab_manager.translate(tc.original_fact, global_map)
-            print("   - ✅ All assets translated.")
-        else:
-            print("   ⚙️  Vocabulary mapping disabled — using original programs and test cases.")
-            for sol in self.solutions:
-                sol.canonical_program = sol.original_program
-            for tc in self.test_cases:
-                tc.canonical_fact = tc.original_fact
-        
-
+        for sol in self.solutions:
+            sol.canonical_program = sol.original_program
+        for tc in self.test_cases:
+            tc.canonical_fact = tc.original_fact
 
         # Save outputs
         print("\n   - 💾 Saving solutions and test cases to disk...")
@@ -273,18 +179,12 @@ class EvolutionarySystem:
             
     def save_summary(self):
         """Prints a summary of the final population."""
-        # print("\n\n--- Final Results ---")
-        # sorted_solutions = sorted(self.solutions, key=lambda x: x.fitness, reverse=True)
+        print("\n\n--- Final Results ---")
+        sorted_solutions = sorted(self.solutions, key=lambda x: x.fitness, reverse=True)
         
-        # print("\n--- Ranked Solutions ---")
-        # for i, sol in enumerate(sorted_solutions):
-        #     print(f"\n--- Rank #{i+1} | Solution {sol.id} | Fitness: {sol.fitness:.2f} ---")
-        #     print("--- Canonical Program ---")
-        #     print(sol.canonical_program)
-        
-        # print("\n\n--- 🧪 Pool of Individual Test Cases ---")
-        # for i, tc in enumerate(self.test_cases):
-        #      print(f"TC #{i+1} | {tc.id} | Canonical Fact: {tc.canonical_fact}")
+        print("\n--- Ranked Solutions ---")
+        for i, sol in enumerate(sorted_solutions):
+            print(f"\n--- Rank #{i+1} | Solution {sol.id} | Fitness: {sol.fitness:.2f} ---")
         
         summary_path = os.path.join(self.log_dir, "summary.txt")
         with open(summary_path, "w", encoding="utf-8") as f:
