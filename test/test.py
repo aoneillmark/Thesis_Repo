@@ -5,13 +5,11 @@ import json
 import re
 import google.generativeai as genai
 from dotenv import load_dotenv
-os.environ["SWI_HOME_DIR"] = r"C:\Program Files\swipl"
-from janus_swi import janus
 import uuid
 from itertools import islice
 import datetime
 
-# Assuming prompts.py is in the same directory and is up-to-date
+from evaluator import Evaluator
 from prompts import GLOBAL_MAPPING_PROMPT, PROLOG_GENERATION_PROMPT, TEST_SUITE_GENERATION_PROMPT
 
 # --- Configuration ---
@@ -37,20 +35,7 @@ def generate_content(prompt, is_json=False):
     except Exception as e:
         print(f"❗️ LLM Generation Error: {e}")
         return None
-
-def get_predicate_signature(query_or_head):
-    """Extracts 'name/arity' from a Prolog query or rule head string."""
-    try:
-        clean_str = query_or_head.strip().replace('\\+', '').strip() # Handle negation
-        name = clean_str.split('(')[0].strip()
-        if '(' not in clean_str: return f"{name}/0"
-        
-        content = clean_str[clean_str.find('(')+1:clean_str.rfind(')')]
-        if not content.strip(): arity = 0
-        else: arity = content.count(',') + 1
-        return f"{name}/{arity}"
-    except Exception:
-        return None
+    
 
 # --- Core System Classes ---
 
@@ -60,7 +45,8 @@ class CandidateSolution:
         print(f"\n🧬 Creating Solution {self.id}...")
         self.original_program = self._generate_program(contract_text, prompt)
         self.canonical_program = None
-        self.fitness = 0.0
+        self.logic_fitness = 0.0
+        self.vocab_fitness = 0.0
 
     def _generate_program(self, contract_text, prompt=None):
         print("  - Generating Prolog program...")
@@ -78,6 +64,8 @@ class TestCase:
         self.id = f"tc_{uuid.uuid4().hex[:8]}"
         self.original_fact = original_prolog_fact.strip()
         self.canonical_fact = None
+        self.logic_fitness = 0.0
+        self.vocab_fitness = 0.0
         
         # Extract the query goal from the fact
         match = re.search(r"test\((?:'[^']+'|\"[^\"]+\"),\s*(.*?)\)\.", self.original_fact, re.DOTALL)
@@ -93,35 +81,13 @@ class EvolutionarySystem:
 
         self.solutions = []
         self.test_cases = []
+        self.evaluator = Evaluator(self.log_dir)
 
     def evaluate_fitness(self):
-        print("\n--- 🏆 Starting Fitness Evaluation ---")
-
-        for sol in self.solutions:
-            sol.canonical_program = sol.original_program
-        for tc in self.test_cases:
-            tc.canonical_fact = tc.original_fact
-
-        # Save outputs
-        print("\n   - 💾 Saving solutions and test cases to disk...")
-        for sol in self.solutions:
-            fname = os.path.join(self.log_dir, f"solution_{sol.id}.pl")
-            with open(fname, "w", encoding="utf-8") as f:
-                f.write(sol.canonical_program or "❌ No canonical program available.")
-        test_log_path = os.path.join(self.log_dir, "test_cases.pl")
-        with open(test_log_path, "w", encoding="utf-8") as f:
-            for tc in self.test_cases:
-                f.write((tc.canonical_fact or "❌ Invalid test case") + "\n")
-
-        print("\n   - 🚀 Evaluating solution fitness...")
-        for sol in self.solutions:
-            passed_count = 0
-            for tc in self.test_cases:
-                if (self._run_single_test(sol.canonical_program, tc.canonical_fact))[0]:
-                    passed_count += 1
-
-            sol.fitness = passed_count / len(self.test_cases) if self.test_cases else 0
-            print(f"     - Solution {sol.id} Fitness: {sol.fitness:.2f} ({passed_count}/{len(self.test_cases)} passed)")
+        self.evaluator.evaluate(self.solutions, self.test_cases)
+    
+    def _run_single_test(self, canonical_program, canonical_test_fact):
+        return self.evaluator._run_single_test(canonical_program, canonical_test_fact)
 
     def generate_test_cases(self, num_cases, contract_text):
         """Generates test cases from the contract text using the TEST_SUITE_GENERATION_PROMPT."""
@@ -148,48 +114,21 @@ class EvolutionarySystem:
             candidate = CandidateSolution(contract_text, prompt)
             self.solutions.append(candidate)
 
-
-    def _run_single_test(self, canonical_program, canonical_test_fact):
-        if not canonical_program or not canonical_test_fact:
-            return False, "Missing program or test fact"
-
-        prog_file = f"temp_prog_{uuid.uuid4().hex[:8]}.pl"
-        with open(prog_file, "w", encoding='utf-8') as f:
-            f.write(canonical_program)
-
-        try:
-            janus.consult(prog_file)
-        except Exception as e:
-            os.remove(prog_file)
-            return False, f"Consult failed: {e}"
-        
-        os.remove(prog_file)
-
-        match = re.search(r"test\((?:'[^']+'|\"[^\"]+\"),\s*(.*?)\)\.", canonical_test_fact, re.DOTALL)
-        if not match:
-            return False, "Malformed test fact"
-
-        goal = match.group(1)
-        try:
-            result = janus.query_once(goal)
-            return (result is not False), None if result is not False else "Query failed (false)"
-        except Exception as e:
-            return False, f"Query error: {e}"
-
             
     def save_summary(self):
         """Prints a summary of the final population."""
         print("\n\n--- Final Results ---")
-        sorted_solutions = sorted(self.solutions, key=lambda x: x.fitness, reverse=True)
+        sorted_solutions = sorted(self.solutions, key=lambda x: x.logic_fitness, reverse=True)
         
         print("\n--- Ranked Solutions ---")
         for i, sol in enumerate(sorted_solutions):
-            print(f"\n--- Rank #{i+1} | Solution {sol.id} | Fitness: {sol.fitness:.2f} ---")
+            print(f"\n--- Rank #{i+1} | Solution {sol.id} | logic_fitness: {sol.logic_fitness:.2f} --- vocab_fitness: {sol.vocab_fitness:.2f} ---")
+
         
         summary_path = os.path.join(self.log_dir, "summary.txt")
         with open(summary_path, "w", encoding="utf-8") as f:
-            for i, sol in enumerate(sorted(self.solutions, key=lambda x: x.fitness, reverse=True)):
-                f.write(f"Rank #{i+1} | Solution {sol.id} | Fitness: {sol.fitness:.2f}\n")
+            for i, sol in enumerate(sorted(self.solutions, key=lambda x: x.logic_fitness, reverse=True)):
+                f.write(f"Rank #{i+1} | Solution {sol.id} | logic_fitness: {sol.logic_fitness:.2f} --- vocab_fitness: {sol.vocab_fitness:.2f}\n")
 
 # --- Main Execution ---
 if __name__ == "__main__":
@@ -216,5 +155,6 @@ if __name__ == "__main__":
     system.generate_solutions(NUM_SOLUTIONS, contract_text, prompt_fns)
 
     # 🧮 Evaluate
-    system.evaluate_fitness()
+    system.evaluate_logic_fitness()
+
     system.print_results()

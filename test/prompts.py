@@ -82,12 +82,12 @@ with open("query_generation_prompt.txt", "r", encoding='utf-8') as file:
 
 
 TEST_SUITE_GENERATION_PROMPT = """
-You are given the text of an insurance contract. Your task is to generate a set of Prolog test cases that query this contract to determine whether or not certain scenarios are covered by the policy.
+You are given the text of an insurance contract. Your task is to generate a set of Prolog test cases that query a hypothetical Prolog encoding of this contract to determine whether or not certain scenarios are covered by the policy.
 
 Instructions:
 1. Return exactly 3 to 5 individual Prolog test cases in the form:
-   test("label", prolog_goal).
-2. Each test case must be a valid Prolog fact, and must include a string label as the first argument and a Prolog goal as the second.
+   test("label", prolog_query).
+2. Each test case must be a valid Prolog fact, and must include a string label as the first argument and a valid Prolog *query* as the second — NOT a rule or clause. Do NOT include the `:-` operator in any test.
 3. Each test case should target a different aspect of the policy — e.g., coverage conditions, exclusions, age requirements, timing, etc.
 4. DO NOT include any explanation or text. Only output Prolog code.
 5. All test cases must use predicates that would exist in a reasonable encoding of the insurance contract.
@@ -99,10 +99,12 @@ Instructions:
 11. Assume that the agreement has been signed and the premium has been paid (on time). There is no need to encode rules or facts for these conditions.
 12. All dates should be integer values representing days relative to the policy's effective date, e.g., `0` for the effective date, `1` for one day later, etc. Do not use absolute dates or words.
 13. After each test case, include a line with exactly five hash symbols (#####) as a separator.
+14. DO NOT define new predicates, rules, or clauses inside the test cases. Only use executable queries that can be run in isolation.
 
 Insurance contract:
 {contract_text}
 """
+
 
 
 # --- Vocabulary Mapping Prompt ----------------------------------------------------------
