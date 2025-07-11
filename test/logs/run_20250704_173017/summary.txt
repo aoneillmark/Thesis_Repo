@@ -1,3 +1,0 @@
-Rank #1 | Solution sol_8993535d | Fitness: 0.00
-Rank #2 | Solution sol_21657f71 | Fitness: 0.00
-Rank #3 | Solution sol_8fbe18bb | Fitness: 0.00
