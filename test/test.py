@@ -10,7 +10,7 @@ from itertools import islice
 import datetime
 
 from evaluator import Evaluator
-from prompts import GLOBAL_MAPPING_PROMPT, PROLOG_GENERATION_PROMPT, TEST_SUITE_GENERATION_PROMPT
+from prompts import PROLOG_GENERATION_PROMPT, TEST_SUITE_GENERATION_PROMPT
 
 # --- Configuration ---
 load_dotenv()
@@ -110,9 +110,13 @@ class EvolutionarySystem:
 
         for i in range(num_solutions):
             print(f"\n--- 🔁 Solution {i + 1}/{num_solutions} ---")
+            if prompt_fns and prompt_fns[i] is None:
+                print(f"⏭️ Skipping solution {i + 1} (vocab-valid and frozen)")
+                continue
             prompt = prompt_fns[i](contract_text) if prompt_fns and i < len(prompt_fns) else None
             candidate = CandidateSolution(contract_text, prompt)
             self.solutions.append(candidate)
+
 
             
     def save_summary(self):

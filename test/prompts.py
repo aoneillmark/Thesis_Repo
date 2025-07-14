@@ -100,6 +100,8 @@ Instructions:
 12. All dates should be integer values representing days relative to the policy's effective date, e.g., `0` for the effective date, `1` for one day later, etc. Do not use absolute dates or words.
 13. After each test case, include a line with exactly five hash symbols (#####) as a separator.
 14. DO NOT define new predicates, rules, or clauses inside the test cases. Only use executable queries that can be run in isolation.
+15. Ensure your tests use consistent predicate names and arities.
+16. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax.
 
 Insurance contract:
 {contract_text}
@@ -147,6 +149,7 @@ Your job is to:
 2. Offer targeted advice to improve the encoding logic for a next version, assuming the base instructions will still be followed. Your advice should not suggest changes to the test cases, but rather on the Prolog code itself.
 3. Do not suggest simply hardcoding the answers to pass tests.
 4. Focus on arity-related issues, as well as incorrect signatures and vocabulary mis-matches. Give specific examples of arity mismatches and vocabulary issues. These cause most of the issues in the tests.
+5. If we're having an arity or vocabulary issue, you should explicitly give the signatures of the predicates that are causing issues to help guide the next version of the encoding.
 
 ### Contract Prolog Code:
 ```
