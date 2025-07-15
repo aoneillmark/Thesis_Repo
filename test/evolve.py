@@ -1,3 +1,4 @@
+# evolve.py
 import copy
 from test import EvolutionarySystem, generate_content
 from prompts import PROLOG_GENERATION_PROMPT
@@ -25,8 +26,9 @@ def run_evolutionary_refinement(solutions, test_cases):
 
 
 def make_prompt_fn(sol_index, previous_solution_ids, per_solution_advice, contract_text, gen):
+    """Creates a prompt function for generating Prolog code based on previous solutions and advice."""
     def prompt_fn(contract_text):
-        sol_id = previous_solution_ids[sol_index] if gen > 1 else None
+        sol_id = previous_solution_ids[sol_index] if gen > 1 and previous_solution_ids[sol_index] is not None else None
         advice = per_solution_advice.get(sol_id, "")
         if advice:
             print(f"\n# ADDITIONAL FEEDBACK FOR {sol_id or '??'}:\n{advice.strip()}")
@@ -83,7 +85,12 @@ def run_vocab_feedback_loop(system, contract_text, test_cases,
 
         system.solutions = [] # So folders don't get clogged up
         system.generate_solutions(num_solutions, contract_text, prompt_fns)
-        previous_solution_ids = [sol.id for sol in system.solutions]
+        # previous_solution_ids = [sol.id for sol in system.solutions]
+        previous_solution_ids = [
+            sol.id if i not in frozen_indexes else None
+            for i, sol in enumerate(system.solutions)
+        ]
+
 
         system.evaluate_fitness()
 
