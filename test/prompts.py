@@ -100,8 +100,8 @@ Instructions:
 12. All dates should be integer values representing days relative to the policy's effective date, e.g., `0` for the effective date, `1` for one day later, etc. Do not use absolute dates or words.
 13. After each test case, include a line with exactly five hash symbols (#####) as a separator.
 14. DO NOT define new predicates, rules, or clauses inside the test cases. Only use executable queries that can be run in isolation.
-15. Ensure your tests use consistent predicate names and arities.
-16. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax.
+15. Ensure your tests use consistent predicate names and arities. Particularly; with is_claim_covered/x, ensure x is consistent across all tests.
+16. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax. DO NOT use this style in your queries.
 
 Insurance contract:
 {contract_text}
