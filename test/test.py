@@ -1,4 +1,4 @@
-# main.py
+# evolutionary_system.py
 
 import os
 import json
@@ -45,8 +45,8 @@ class CandidateSolution:
         print(f"\n🧬 Creating Solution {self.id}...")
         self.original_program = self._generate_program(contract_text, prompt)
         self.canonical_program = None
-        self.logic_fitness = 0.0
-        self.vocab_fitness = 0.0
+        self.logic_fitness = "dummy"
+        self.vocab_fitness = "dummy"
 
     def _generate_program(self, contract_text, prompt=None):
         print("  - Generating Prolog program...")
@@ -64,8 +64,8 @@ class TestCase:
         self.id = f"tc_{uuid.uuid4().hex[:8]}"
         self.original_fact = original_prolog_fact.strip()
         self.canonical_fact = None
-        self.logic_fitness = 0.0
-        self.vocab_fitness = 0.0
+        self.logic_fitness = "dummy"
+        self.vocab_fitness = "dummy"
         
         # Extract the query goal from the fact
         match = re.search(r"test\((?:'[^']+'|\"[^\"]+\"),\s*(.*?)\)\.", self.original_fact, re.DOTALL)
@@ -159,6 +159,6 @@ if __name__ == "__main__":
     system.generate_solutions(NUM_SOLUTIONS, contract_text, prompt_fns)
 
     # 🧮 Evaluate
-    system.evaluate_logic_fitness()
+    system.evaluate_fitness()
 
     system.print_results()
