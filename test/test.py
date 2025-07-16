@@ -27,6 +27,9 @@ def generate_content(prompt, is_json=False):
     """A helper function to call the generative AI model and handle potential errors."""
     try:
         response = model.generate_content(prompt)
+        if not response or not response.text:
+            print("❌ No response text received from the model.")
+            return None
         text = response.text.strip()
         if "```" in text:
             lang = "json" if is_json else "prolog"
@@ -83,8 +86,8 @@ class EvolutionarySystem:
         self.test_cases = []
         self.evaluator = Evaluator(self.log_dir)
 
-    def evaluate_fitness(self):
-        self.evaluator.evaluate(self.solutions, self.test_cases)
+    def evaluate_fitness(self, iteration=None):
+        self.evaluator.evaluate(self.solutions, self.test_cases, iteration)
     
     def _run_single_test(self, canonical_program, canonical_test_fact):
         return self.evaluator._run_single_test(canonical_program, canonical_test_fact)
@@ -98,12 +101,26 @@ class EvolutionarySystem:
             print("❌ Failed to generate test cases.")
             return []
 
-        # Split using the '#####' marker
         raw_tests = [tc.strip() for tc in raw_output.split('#####') if tc.strip()]
-        parsed_tests = [TestCase(tc) for tc in raw_tests[:num_cases]]
-        print(f"✅ Generated {len(parsed_tests)} test cases.")
-        return parsed_tests
-    
+        parsed = [TestCase(tc) for tc in raw_tests[:num_cases]]
+        print(f"✅ Generated {len(parsed)} test cases.")
+        # Save the raw output to a file for debugging
+        raw_output_path = os.path.join(self.log_dir, "raw_test_cases.txt")
+        with open(raw_output_path, "w", encoding="utf-8") as f:
+            f.write(raw_output)
+        return parsed
+
+    def generate_test_case(self, contract_text, prompt_fn):
+        """Generate a single TestCase using a feedback-wrapped prompt."""
+        print("\n--- 🧪 Regenerating ONE Test Case ---")
+        raw = generate_content(prompt_fn(contract_text))
+        if not raw:
+            print("❌ Failed to generate test case.")
+            return None
+        tc = TestCase(raw)
+        print(f"✅ Generated test {tc.id}.")
+        return tc
+
     def generate_solutions(self, num_solutions, contract_text, prompt_fns=None):
         """Generates candidate solutions from the contract text using the given prompt functions."""
         print(f"\n--- 🧬 Generating {num_solutions} Candidate Solutions ---")
