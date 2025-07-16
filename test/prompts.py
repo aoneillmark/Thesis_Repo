@@ -98,10 +98,11 @@ Instructions:
 10. Assume that all dates/times in any query to this code (apart from the claimant's age) will be given RELATIVE to the effective date of the policy (i.e., there will never be a need to calculate the time elapsed between two dates). Take dates RELATIVE TO the effective date into account when writing this encoding.
 11. Assume that the agreement has been signed and the premium has been paid (on time). There is no need to encode rules or facts for these conditions.
 12. All dates should be integer values representing days relative to the policy's effective date, e.g., `0` for the effective date, `1` for one day later, etc. Do not use absolute dates or words.
-13. After each test case, include a line with exactly five hash symbols (#####) as a separator.
-14. DO NOT define new predicates, rules, or clauses inside the test cases. Only use executable queries that can be run in isolation.
-15. Ensure your tests use consistent predicate names and arities. Particularly; with is_claim_covered/x, ensure x is consistent across all tests.
-16. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax. DO NOT use this style in your queries.
+13. For each test case, include comments explaining what each arguemnt represents, especially for the query goal. BUT DO NOT USE KEY=VALUE PAIRS.
+14. After each test case, include a line with exactly five hash symbols (#####) as a separator.
+15. DO NOT define new predicates, rules, or clauses inside the test cases. Only use executable queries that can be run in isolation.
+16. Ensure your tests use consistent predicate names and arities. Particularly; with is_claim_covered/x, ensure x is consistent across all tests.
+17. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax. DO NOT use this style in your queries.
 
 Insurance contract:
 {contract_text}
