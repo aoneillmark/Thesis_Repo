@@ -90,18 +90,134 @@ def repair_test(system, t_idx, failing_progs):
     You are fixing ONE Prolog query so that its predicate names & arities
     match all programs shown below (keep query intent).
 
-    ----- TEST -----
-    {tc.original_fact}
-
     ----- FAILING PROGRAMS -----
     {prog_snips}
 
-    Produce ONLY the corrected test fact.
+    ----- TEST -----
+    {tc.original_fact}
+
+    Produce ONLY the corrected test query.
+    DO NOT write more predicates, rules, or clauses. ONLY the query.
     """
     updated = generate_content(prompt)
     # print(updated)
     if updated:
         tc.original_fact = updated.strip()
+
+# ────────────────────────────────────────────────────────────────────────────
+# New helpers & driver for post-Stage-1 processing
+# ────────────────────────────────────────────────────────────────────────────
+def _invert_vocab_matrix(vocab_matrix):
+    """Transform 1=vocab_error → 0 • 0=clean → 1  (i.e. 1 == clean pass)."""
+    return [[1 - cell for cell in row] for row in vocab_matrix]
+
+def _collect_clean_sets(system):
+    """
+    Return (clean_solutions, covered_tests) where
+    clean_solutions  = [sol  | sol.vocab_fitness == 1.0]
+    covered_tests    = set of TestCase objs that at least one clean solution passes
+                       vocab-wise.
+    """
+    if not system.evaluator.vocab_matrix:
+        raise RuntimeError("evaluate_fitness() must be run first")
+
+    pass_matrix = _invert_vocab_matrix(system.evaluator.vocab_matrix)
+
+    clean_sol_ids = [
+        i for i, row in enumerate(pass_matrix)
+        if all(row)                 # every test passed vocab-wise
+    ]
+
+    clean_solutions = [system.solutions[i] for i in clean_sol_ids]
+
+    passed_test_idxs = {
+        j
+        for i in clean_sol_ids
+        for j, ok in enumerate(pass_matrix[i])
+        if ok
+    }
+    covered_tests   = [system.test_cases[j] for j in sorted(passed_test_idxs)]
+    return clean_solutions, covered_tests
+
+
+def evolution_dummy(solutions, tests, m, n):
+    """
+    Temporary stand-in that activates only when we have enough material.
+    Returns True when activated so the caller can break its loop.
+    """
+    if len(solutions) < m or len(tests) < n:
+        return False            # keep searching / generating
+    print("\n🚀  evolution_dummy ACTIVATED")
+    print("   Solutions:", [s.id for s in solutions[:m]])
+    print("   Tests    :", [t.id for t in tests[:n]])
+    return True
+
+
+def evolve_until_dummy(contract_text,
+                       target_m=3,
+                       target_n=5,
+                       max_vocab_iters=5,
+                       reseed_batch=3,
+                       max_rounds=10):
+    """
+    High-level loop:
+      • spawn / extend an EvolutionarySystem
+      • run vocab alignment
+      • harvest clean sets
+      • reseed until evolution_dummy() fires or we hit max_rounds
+    """
+    round_no = 0
+    system   = EvolutionarySystem()
+
+    # initial seed
+    system.test_cases = system.generate_test_cases(target_n, contract_text)
+    system.generate_solutions(target_m, contract_text, [
+        lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct)
+        for _ in range(target_m)
+    ])
+
+    while round_no < max_rounds:
+        round_no += 1
+        print(f"\n================  OUTER ROUND {round_no}  ================\n")
+
+        # ── Stage-1 alignment ────────────────────────────────────────────
+        aligned = run_vocab_alignment(system, max_iters=max_vocab_iters)
+        if not aligned:
+            print("🛑  Alignment failed this round - reseeding everything")
+            system = EvolutionarySystem()      # hard reset
+            continue
+
+        # ── Pick the clean solutions/tests ───────────────────────────────
+        clean_solutions, covered_tests = _collect_clean_sets(system)
+        print(f"📈  Clean solutions so far: {len(clean_solutions)}  |  "
+              f"Covered tests: {len(covered_tests)}")
+
+        # ── Try to activate the dummy ────────────────────────────────────
+        if evolution_dummy(clean_solutions, covered_tests,
+                           target_m, target_n):
+            print("✅  Done.")
+            return
+
+        # ── Otherwise reseed missing material and loop again ─────────────
+        missing_sols  = max(0, target_m - len(clean_solutions))
+        missing_tests = max(0, target_n - len(covered_tests))
+
+        if missing_tests:
+            new_tests = system.generate_test_cases(
+                max(missing_tests, reseed_batch), contract_text)
+            system.test_cases.extend(new_tests)
+
+        if missing_sols:
+            prompt_fns = [
+                lambda ct, p=PROLOG_GENERATION_PROMPT:
+                    p.format(contract_text=ct)
+                for _ in range(max(missing_sols, reseed_batch))
+            ]
+            system.generate_solutions(
+                max(missing_sols, reseed_batch), contract_text, prompt_fns)
+
+    print("❌  evolve_until_dummy: gave up after max_rounds "
+          "without satisfying quotas.")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -197,13 +313,23 @@ def evolve_with_feedback(contract_text,
 # ────────────────────────────────────────────────────────────────────────────
 # CLI entry-point
 # ────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    CONTRACT = "insurance_contract.txt"
-    if not os.path.isfile(CONTRACT):
-        print(f"✘ Cannot find {CONTRACT}")
-        exit(1)
+# if __name__ == "__main__":
+#     CONTRACT = "insurance_contract.txt"
+#     if not os.path.isfile(CONTRACT):
+#         print(f"✘ Cannot find {CONTRACT}")
+#         exit(1)
 
-    with open(CONTRACT, "r", encoding="utf-8") as fh:
+#     with open(CONTRACT, "r", encoding="utf-8") as fh:
+#         contract_text = fh.read()
+
+#     evolve_with_feedback(contract_text, max_vocab_iters=10)
+
+if __name__ == "__main__":
+    with open("insurance_contract.txt", encoding="utf-8") as fh:
         contract_text = fh.read()
 
-    evolve_with_feedback(contract_text, max_vocab_iters=10)
+    # e.g. want 4 vocab-clean programs and 6 vocab-clean tests
+    evolve_until_dummy(contract_text,
+                       target_m=4,
+                       target_n=6,
+                       max_vocab_iters=10)
