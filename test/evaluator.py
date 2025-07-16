@@ -10,29 +10,51 @@ class Evaluator:
         self.vocab_matrix = []
         os.makedirs(self.log_dir, exist_ok=True)
 
-    def save_solutions(self, solutions):
+    # def save_solutions(self, solutions):
+    #     for sol in solutions:
+    #         sol.canonical_program = sol.original_program
+    #         fname = os.path.join(self.log_dir, f"solution_{sol.id}.pl")
+    #         with open(fname, "w", encoding="utf-8") as f:
+    #             f.write(sol.canonical_program or "❌ No canonical program available.")
+
+
+    # def save_test_cases(self, test_cases):
+    #     for tc in test_cases:
+    #         tc.canonical_fact = tc.original_fact
+    #     test_log = os.path.join(self.log_dir, "test_cases.pl")
+    #     with open(test_log, "w", encoding="utf-8") as f:
+    #         for tc in test_cases:
+    #             f.write((tc.canonical_fact or "❌ Invalid test case") + "\n")
+
+
+    def save_solutions(self, solutions, iteration=None):
+        iter_dir = os.path.join(self.log_dir, f"iter_{iteration:02d}") if iteration else self.log_dir
+        os.makedirs(iter_dir, exist_ok=True)
         for sol in solutions:
             sol.canonical_program = sol.original_program
-            fname = os.path.join(self.log_dir, f"solution_{sol.id}.pl")
+            fname = os.path.join(iter_dir, f"solution_{sol.id}.pl")
             with open(fname, "w", encoding="utf-8") as f:
                 f.write(sol.canonical_program or "❌ No canonical program available.")
 
-    def save_test_cases(self, test_cases):
+    def save_test_cases(self, test_cases, iteration=None):
+        iter_dir = os.path.join(self.log_dir, f"iter_{iteration:02d}") if iteration else self.log_dir
+        os.makedirs(iter_dir, exist_ok=True)
         for tc in test_cases:
             tc.canonical_fact = tc.original_fact
-        test_log = os.path.join(self.log_dir, "test_cases.pl")
+        test_log = os.path.join(iter_dir, "test_cases.pl")
         with open(test_log, "w", encoding="utf-8") as f:
             for tc in test_cases:
                 f.write((tc.canonical_fact or "❌ Invalid test case") + "\n")
 
-    def evaluate(self, solutions, test_cases):
+    def evaluate(self, solutions, test_cases, iteration=None):
         print("\n--- 🏆 Starting Evaluation ---")
-        self.save_solutions(solutions)
-        self.save_test_cases(test_cases)
+        self.save_solutions(solutions, iteration)
+        self.save_test_cases(test_cases, iteration)
 
         logic_matrix = []
         vocab_matrix = []
 
+        # Evaluate each solution against each test
         for sol in solutions:
             logic_row = []
             vocab_row = []
@@ -65,14 +87,27 @@ class Evaluator:
             print(f"  🔍 Solution {sol.id} logic_fitness: {sol.logic_fitness:.2f} "
                   f"({logic_passes}/{len(test_cases)})")
             print(f"  📝 Solution {sol.id} vocab_fitness: {sol.vocab_fitness:.2f} "
-                  f"({vocab_errors}/{len(test_cases)})")
+                  f"({len(test_cases)-vocab_errors}/{len(test_cases)})")
 
-        # Compute per-test confidence & discrimination only for logic
+        # Compute per-test metrics
         logic_fitnesses = [sol.logic_fitness for sol in solutions]
         self._compute_confidence(test_cases, logic_matrix, logic_fitnesses, "logic_confidence")
         self._compute_discrimination(test_cases, logic_matrix, "logic_discrimination")
 
-        # Expose the raw matrices if you need them downstream
+        # Print test-level fitness for logic and vocab
+        num_sols = len(solutions)
+        for j, tc in enumerate(test_cases):
+            # logic pass count
+            pass_count = sum(logic_matrix[i][j] for i in range(num_sols))
+            logic_rate = pass_count / num_sols if num_sols else 0
+            # vocab error count
+            error_count = sum(vocab_matrix[i][j] for i in range(num_sols))
+            vocab_rate = 1 - (error_count / num_sols) if num_sols else 0
+            print(f"  🧪 Test {tc.id} logic_fitness: {logic_rate:.2f} ({pass_count}/{num_sols})")
+            print(f"  📝 Test {tc.id} vocab_fitness: {vocab_rate:.2f} "
+                  f"({num_sols-error_count}/{num_sols})")
+
+        # Expose raw matrices and updated test attributes downstream
         self.logic_matrix = logic_matrix
         self.vocab_matrix = vocab_matrix
 
