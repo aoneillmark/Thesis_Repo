@@ -107,7 +107,28 @@ Insurance contract:
 {contract_text}
 """
 
+TEST_REPAIR_PROMPT = """
+You are fixing ONE Prolog query so that its predicate names & arities match all programs shown below (keep query intent).
+----- FAILING PROGRAMS -----
+{prog_snips}
 
+----- Failing Query -----
+{failing_query}
+
+Produce ONLY the corrected test query.
+Extra instructions:
+1. Return your query in the form:
+   test("label", prolog_query).
+2. Each test case must be a valid Prolog fact, and must include a string label as the first argument and a valid Prolog *query* as the second — NOT a rule or clause. Do NOT include the `:-` operator in any test.
+3. DO NOT include any explanation or text. Only output Prolog code.
+4. The test case must only query the public-facing predicate `is_claim_covered` to determine whether a claim is covered. Do not directly test helper or internal predicates.
+5. If using compound goals (e.g., intermediate variable bindings), wrap them in parentheses, and separate them with commas.
+6. DO NOT use `not`. Use `\+` for negation in Prolog.
+7. DO NOT define new predicates, rules, or clauses inside the test cases. Only use executable queries that can be run in isolation.
+8. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax. DO NOT use this style in your queries.
+
+
+"""
 
 # # --- Vocabulary Mapping Prompt ----------------------------------------------------------
 
