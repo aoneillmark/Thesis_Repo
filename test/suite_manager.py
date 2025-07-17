@@ -1,10 +1,8 @@
-# evolutionary_system.py
+# suite_manager.py
 
 import os
 import json
 import re
-import google.generativeai as genai
-from dotenv import load_dotenv
 import uuid
 from itertools import islice
 import datetime
@@ -12,33 +10,7 @@ import datetime
 from evaluator import Evaluator
 from prompts import PROLOG_GENERATION_PROMPT, TEST_SUITE_GENERATION_PROMPT
 
-# --- Configuration ---
-load_dotenv()
-try:
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-except KeyError:
-    print("❌ Error: GEMINI_API_KEY environment variable not set.")
-    exit()
-
-model = genai.GenerativeModel('models/gemini-2.5-flash-lite-preview-06-17') # RPM: 15, TPM: 250,000, RPD: 1,000
-
-# --- Helper Functions ---
-def generate_content(prompt, is_json=False):
-    """A helper function to call the generative AI model and handle potential errors."""
-    try:
-        response = model.generate_content(prompt)
-        if not response or not response.text:
-            print("❌ No response text received from the model.")
-            return None
-        text = response.text.strip()
-        if "```" in text:
-            lang = "json" if is_json else "prolog"
-            text = text.split(f"```{lang}\n")[1].split("\n```")[0]
-        return text
-    except Exception as e:
-        print(f"❗️ LLM Generation Error: {e}")
-        return None
-    
+from utils import generate_content
 
 # --- Core System Classes ---
 
@@ -75,8 +47,8 @@ class TestCase:
         self.query_goal = match.group(1) if match else None
         
 
-# --- Main System Class ---
-class EvolutionarySystem:
+# --- Main Manager Class which holds and coordinates CandidateSolutions and TestCases ---
+class SuiteManager:
     def __init__(self, log_dir=None):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.log_dir = log_dir or f"logs/run_{timestamp}"
@@ -97,6 +69,7 @@ class EvolutionarySystem:
         print(f"\n--- 🧪 Generating {num_cases} Test Cases ---")
         prompt = TEST_SUITE_GENERATION_PROMPT.format(contract_text=contract_text)
         raw_output = generate_content(prompt)
+        
         if not raw_output:
             print("❌ Failed to generate test cases.")
             return []
@@ -104,10 +77,12 @@ class EvolutionarySystem:
         raw_tests = [tc.strip() for tc in raw_output.split('#####') if tc.strip()]
         parsed = [TestCase(tc) for tc in raw_tests[:num_cases]]
         print(f"✅ Generated {len(parsed)} test cases.")
+
         # Save the raw output to a file for debugging
         raw_output_path = os.path.join(self.log_dir, "raw_test_cases.txt")
         with open(raw_output_path, "w", encoding="utf-8") as f:
             f.write(raw_output)
+        
         return parsed
 
     def generate_test_case(self, contract_text, prompt_fn):
@@ -151,31 +126,31 @@ class EvolutionarySystem:
             for i, sol in enumerate(sorted(self.solutions, key=lambda x: x.logic_fitness, reverse=True)):
                 f.write(f"Rank #{i+1} | Solution {sol.id} | logic_fitness: {sol.logic_fitness:.2f} --- vocab_fitness: {sol.vocab_fitness:.2f}\n")
 
-# --- Main Execution ---
-if __name__ == "__main__":
-    try:
-        with open("insurance_contract.txt", "r", encoding='utf-8') as file:
-            contract_text = file.read()
-    except FileNotFoundError:
-        print("❌ Error: 'insurance_contract.txt' not found. Please create it.")
-        exit()
+# # --- Main Execution ---
+# if __name__ == "__main__":
+#     try:
+#         with open("insurance_contract.txt", "r", encoding='utf-8') as file:
+#             contract_text = file.read()
+#     except FileNotFoundError:
+#         print("❌ Error: 'insurance_contract.txt' not found. Please create it.")
+#         exit()
 
-    NUM_SOLUTIONS = 3
-    NUM_TEST_CASES = 10
+#     NUM_SOLUTIONS = 3
+#     NUM_TEST_CASES = 10
 
-    system = EvolutionarySystem()
+#     system = EvolutionarySystem()
     
-    # 🧪 Generate test cases first
-    system.test_cases = system.generate_test_cases(NUM_TEST_CASES, contract_text)
+#     # 🧪 Generate test cases first
+#     system.test_cases = system.generate_test_cases(NUM_TEST_CASES, contract_text)
     
-    # 🧬 Generate candidate solutions with default prompt
-    prompt_fns = [
-        (lambda: (lambda ct: PROLOG_GENERATION_PROMPT.format(contract_text=ct)))()
-        for _ in range(NUM_SOLUTIONS)
-    ]
-    system.generate_solutions(NUM_SOLUTIONS, contract_text, prompt_fns)
+#     # 🧬 Generate candidate solutions with default prompt
+#     prompt_fns = [
+#         (lambda: (lambda ct: PROLOG_GENERATION_PROMPT.format(contract_text=ct)))()
+#         for _ in range(NUM_SOLUTIONS)
+#     ]
+#     system.generate_solutions(NUM_SOLUTIONS, contract_text, prompt_fns)
 
-    # 🧮 Evaluate
-    system.evaluate_fitness()
+#     # 🧮 Evaluate
+#     system.evaluate_fitness()
 
-    system.print_results()
+#     system.print_results()

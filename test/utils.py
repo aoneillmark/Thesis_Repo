@@ -1,5 +1,13 @@
+# utils.py
 import math
-# import os
+from dotenv import load_dotenv
+import google.generativeai as genai
+import os
+import random
+import re
+from google.api_core import exceptions as gexp   
+import time
+
 # import datetime
 # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 # log_dir = f"logs/run_{timestamp}"
@@ -47,3 +55,73 @@ def calculate_test_disc(test_idx, code_population, matrix):
 #     with open(test_log, "w", encoding="utf-8") as f:
 #         for tc in test_cases:
 #             f.write((tc.canonical_fact or "❌ Invalid test case") + "\n")
+
+# --- Configuration ---
+load_dotenv()
+try:
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+except KeyError:
+    print("❌ Error: GEMINI_API_KEY environment variable not set.")
+    exit()
+
+model = genai.GenerativeModel('models/gemini-2.5-flash-lite-preview-06-17') # RPM: 15, TPM: 250,000, RPD: 1,000
+
+# ---------------------------------------------------------------------------
+# internal
+# ---------------------------------------------------------------------------
+_retry_secs_re = re.compile(r"retry_delay\s*{\s*seconds:\s*(\d+)")
+
+def _next_delay(prev, cap=60):
+    """Exponential back-off with jitter, capped at `cap` seconds."""
+    base = min(prev * 2, cap)
+    return base + random.uniform(0, base * 0.15)      # ±15 % jitter
+
+# ---------------------------------------------------------------------------
+# public
+# ---------------------------------------------------------------------------
+def generate_content(prompt, *, is_json=False,
+                     max_retries=6, init_delay=4):
+    """
+    Call Gemini with automatic retries on transient errors
+    (429, 503, network glitches). Returns `None` only after
+    exhausting all retries.
+    """
+    delay = init_delay
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = model.generate_content(prompt)
+            if not resp or not resp.text:
+                print("❌  Empty LLM response")
+                return None
+            text = resp.text.strip()
+            if "```" in text:
+                lang = "json" if is_json else "prolog"
+                text = text.split(f"```{lang}\n", 1)[-1].split("\n```", 1)[0]
+            return text
+
+        # ---------- transient / quota errors ----------
+        except (gexp.TooManyRequests, gexp.ServiceUnavailable,
+                gexp.DeadlineExceeded) as e:
+            # honour server-suggested retry_delay if present
+            srv_wait = getattr(e, "retry_delay", None)
+            if not srv_wait:
+                # sometimes the delay is only in the text blob ➜ parse it
+                m = _retry_secs_re.search(str(e))
+                srv_wait = int(m.group(1)) if m else None
+            wait = srv_wait.seconds if hasattr(srv_wait, "seconds") else srv_wait
+            if not wait:
+                wait = delay
+                delay = _next_delay(delay)
+
+            print(f"⚠️  {type(e).__name__} (attempt {attempt}/{max_retries}) "
+                  f"– sleeping {wait:.1f}s")
+            time.sleep(wait)
+            continue
+
+        # ---------- other errors ----------
+        except Exception as e:
+            print(f"❗️ LLM Generation Error (fatal): {e}")
+            return None
+
+    print("❌  Exhausted retries without success.")
+    return None

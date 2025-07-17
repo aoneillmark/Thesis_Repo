@@ -1,5 +1,5 @@
 from prompts import DIAGNOSIS_PROMPT
-from test import generate_content
+from utils import generate_content
 
 def diagnose_solution_failures(solution, test_cases, run_test_fn):
     """

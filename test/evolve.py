@@ -3,8 +3,9 @@ import os
 import random
 from collections import deque
 
-from test import EvolutionarySystem, generate_content
-from prompts import PROLOG_GENERATION_PROMPT
+from suite_manager import SuiteManager
+from utils import generate_content
+from prompts import PROLOG_GENERATION_PROMPT, TEST_REPAIR_PROMPT
 
 # ────────────────────────────────────────────────────────────────────────────
 # Configurable thresholds (spec-driven)
@@ -60,10 +61,24 @@ def select_refactor_target(prog_rates, test_rates):
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Seeding helper
+# ────────────────────────────────────────────────────────────────────────────
+def _seed_manager(sm, contract_text, n_solutions, n_tests):
+    """Populate a blank SuiteManager with tests + candidate programs."""
+    sm.test_cases = sm.generate_test_cases(n_tests, contract_text)
+
+    prompt_fns = [
+        lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct)
+        for _ in range(n_solutions)
+    ]
+    sm.generate_solutions(n_solutions, contract_text, prompt_fns)
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Repair helpers
 # ────────────────────────────────────────────────────────────────────────────
-def repair_program(system, p_idx, failing_tests):
-    sol = system.solutions[p_idx]
+def repair_program(suite_manager, p_idx, failing_tests):
+    sol = suite_manager.solutions[p_idx]
     failing_snips = "\n".join(t.original_fact for t in failing_tests)
     prompt = f"""
     You are fixing ONE Prolog program so that its predicate names & arities
@@ -82,23 +97,29 @@ def repair_program(system, p_idx, failing_tests):
     if updated:
         sol.original_program = updated.strip()
 
-def repair_test(system, t_idx, failing_progs):
-    tc = system.test_cases[t_idx]
+def repair_test(suite_manager, t_idx, failing_progs):
+    tc = suite_manager.test_cases[t_idx]
     prog_snips = "\n\n".join(p.original_program for p in failing_progs)
-    other_tests = "\n".join(t.original_fact for t in system.test_cases if t != tc)
-    prompt = f"""
-    You are fixing ONE Prolog query so that its predicate names & arities
-    match all programs shown below (keep query intent).
+    other_tests = "\n".join(t.original_fact for t in suite_manager.test_cases if t != tc)
+    # prompt = f"""
+    # You are fixing ONE Prolog query so that its predicate names & arities
+    # match all programs shown below (keep query intent).
 
-    ----- FAILING PROGRAMS -----
-    {prog_snips}
+    # ----- FAILING PROGRAMS -----
+    # {prog_snips}
 
-    ----- TEST -----
-    {tc.original_fact}
+    # ----- TEST -----
+    # {tc.original_fact}
 
-    Produce ONLY the corrected test query.
-    DO NOT write more predicates, rules, or clauses. ONLY the query.
-    """
+    # Produce ONLY the corrected test query.
+    # DO NOT write more predicates, rules, or clauses. ONLY the query.
+    # """
+
+    prompt = TEST_REPAIR_PROMPT.format(
+        prog_snips=prog_snips,
+        failing_query= tc.original_fact
+    )
+
     updated = generate_content(prompt)
     # print(updated)
     if updated:
@@ -111,24 +132,24 @@ def _invert_vocab_matrix(vocab_matrix):
     """Transform 1=vocab_error → 0 • 0=clean → 1  (i.e. 1 == clean pass)."""
     return [[1 - cell for cell in row] for row in vocab_matrix]
 
-def _collect_clean_sets(system):
+def _collect_clean_sets(suite_manager):
     """
     Return (clean_solutions, covered_tests) where
     clean_solutions  = [sol  | sol.vocab_fitness == 1.0]
     covered_tests    = set of TestCase objs that at least one clean solution passes
                        vocab-wise.
     """
-    if not system.evaluator.vocab_matrix:
+    if not suite_manager.evaluator.vocab_matrix:
         raise RuntimeError("evaluate_fitness() must be run first")
 
-    pass_matrix = _invert_vocab_matrix(system.evaluator.vocab_matrix)
+    pass_matrix = _invert_vocab_matrix(suite_manager.evaluator.vocab_matrix)
 
     clean_sol_ids = [
         i for i, row in enumerate(pass_matrix)
         if all(row)                 # every test passed vocab-wise
     ]
 
-    clean_solutions = [system.solutions[i] for i in clean_sol_ids]
+    clean_solutions = [suite_manager.solutions[i] for i in clean_sol_ids]
 
     passed_test_idxs = {
         j
@@ -136,7 +157,7 @@ def _collect_clean_sets(system):
         for j, ok in enumerate(pass_matrix[i])
         if ok
     }
-    covered_tests   = [system.test_cases[j] for j in sorted(passed_test_idxs)]
+    covered_tests   = [suite_manager.test_cases[j] for j in sorted(passed_test_idxs)]
     return clean_solutions, covered_tests
 
 
@@ -161,34 +182,32 @@ def evolve_until_dummy(contract_text,
                        max_rounds=10):
     """
     High-level loop:
-      • spawn / extend an EvolutionarySystem
+      • spawn / extend a SuiteManager
       • run vocab alignment
       • harvest clean sets
       • reseed until evolution_dummy() fires or we hit max_rounds
     """
     round_no = 0
-    system   = EvolutionarySystem()
+    suite_manager   = SuiteManager()
 
     # initial seed
-    system.test_cases = system.generate_test_cases(target_n, contract_text)
-    system.generate_solutions(target_m, contract_text, [
-        lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct)
-        for _ in range(target_m)
-    ])
+    suite_manager = SuiteManager()
+    _seed_manager(suite_manager, contract_text, target_m, target_n)
 
     while round_no < max_rounds:
         round_no += 1
         print(f"\n================  OUTER ROUND {round_no}  ================\n")
 
         # ── Stage-1 alignment ────────────────────────────────────────────
-        aligned = run_vocab_alignment(system, max_iters=max_vocab_iters)
+        aligned = run_vocab_alignment(suite_manager, max_iters=max_vocab_iters)
         if not aligned:
             print("🛑  Alignment failed this round - reseeding everything")
-            system = EvolutionarySystem()      # hard reset
+            suite_manager = SuiteManager()          # hard reset
+            _seed_manager(suite_manager, contract_text, target_m, target_n)
             continue
 
         # ── Pick the clean solutions/tests ───────────────────────────────
-        clean_solutions, covered_tests = _collect_clean_sets(system)
+        clean_solutions, covered_tests = _collect_clean_sets(suite_manager)
         print(f"📈  Clean solutions so far: {len(clean_solutions)}  |  "
               f"Covered tests: {len(covered_tests)}")
 
@@ -203,9 +222,9 @@ def evolve_until_dummy(contract_text,
         missing_tests = max(0, target_n - len(covered_tests))
 
         if missing_tests:
-            new_tests = system.generate_test_cases(
+            new_tests = suite_manager.generate_test_cases(
                 max(missing_tests, reseed_batch), contract_text)
-            system.test_cases.extend(new_tests)
+            suite_manager.test_cases.extend(new_tests)
 
         if missing_sols:
             prompt_fns = [
@@ -213,7 +232,7 @@ def evolve_until_dummy(contract_text,
                     p.format(contract_text=ct)
                 for _ in range(max(missing_sols, reseed_batch))
             ]
-            system.generate_solutions(
+            suite_manager.generate_solutions(
                 max(missing_sols, reseed_batch), contract_text, prompt_fns)
 
     print("❌  evolve_until_dummy: gave up after max_rounds "
@@ -223,20 +242,22 @@ def evolve_until_dummy(contract_text,
 # ────────────────────────────────────────────────────────────────────────────
 # Stage-1: vocabulary alignment loop
 # ────────────────────────────────────────────────────────────────────────────
-def run_vocab_alignment(system, max_iters=5):
+def run_vocab_alignment(suite_manager, max_iters=5):
     """
     Continually evaluate and repair until all programs & tests reach the
     GOOD_THRESHOLD pass-rate or we hit max_iters.
     """
     for it in range(1, max_iters + 1):
         print(f"\n🔄  Vocabulary alignment | Iteration {it}")
-        system.evaluate_fitness(iteration=it)            # populates vocab_matrix (errors)
+        suite_manager.evaluate_fitness(iteration=it)            # populates vocab_matrix (errors)
 
         # convert 1=edgecase(error) → pass=0/1
-        error_matrix = system.evaluator.vocab_matrix
+        error_matrix = suite_manager.evaluator.vocab_matrix
         pass_matrix  = [[1 - cell for cell in row] for row in error_matrix]
 
         prog_rates, test_rates = compute_pass_rates(pass_matrix)
+        if not prog_rates or not test_rates:      # nothing evaluated
+            return False
 
         # stop?
         if all(r >= GOOD_THRESHOLD for r in prog_rates) \
@@ -247,18 +268,18 @@ def run_vocab_alignment(system, max_iters=5):
         target, idx = select_refactor_target(prog_rates, test_rates)
         if target == "program":
             failing_tests = [
-                system.test_cases[j] for j, ok in enumerate(pass_matrix[idx])
+                suite_manager.test_cases[j] for j, ok in enumerate(pass_matrix[idx])
                 if ok == 0
             ]
-            print(f"🔧 Repairing program {idx} (ID: {system.solutions[idx].id})")
-            repair_program(system, idx, failing_tests)
+            print(f"🔧 Repairing program {idx} (ID: {suite_manager.solutions[idx].id})")
+            repair_program(suite_manager, idx, failing_tests)
         else:
             failing_progs = [
-                system.solutions[i] for i, row in enumerate(pass_matrix)
+                suite_manager.solutions[i] for i, row in enumerate(pass_matrix)
                 if row[idx] == 0
             ]
-            print(f"🔧 Repairing test {idx} (ID: {system.test_cases[idx].id})")
-            repair_test(system, idx, failing_progs)
+            print(f"🔧 Repairing test {idx} (ID: {suite_manager.test_cases[idx].id})")
+            repair_test(suite_manager, idx, failing_progs)
 
     print("❌ Failed to converge within max_iters.")
     return False
@@ -267,11 +288,11 @@ def run_vocab_alignment(system, max_iters=5):
 # ────────────────────────────────────────────────────────────────────────────
 # Stage-2: logic refinement (placeholder)
 # ────────────────────────────────────────────────────────────────────────────
-def run_logic_refinement(system):
+def run_logic_refinement(suite_manager):
     print("\n🚀 Entering Stage-2 logic checks")
-    system.evaluate_fitness()  # full metrics now
+    suite_manager.evaluate_fitness()  # full metrics now
 
-    ranked = sorted(system.solutions,
+    ranked = sorted(suite_manager.solutions,
                     key=lambda s: s.logic_fitness,
                     reverse=True)
     print("\n🏅 Top solutions:")
@@ -280,34 +301,34 @@ def run_logic_refinement(system):
               f"vocab={sol.vocab_fitness:.2f}")
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Orchestration
-# ────────────────────────────────────────────────────────────────────────────
-def evolve_with_feedback(contract_text,
-                         n_programs=5,
-                         n_tests=5,
-                         max_vocab_iters=5):
-    """
-    High-level driver:
-      1 seed populations → 2 Stage-1 alignment → 3 Stage-2 refinement
-    """
-    system = EvolutionarySystem()
+# # ────────────────────────────────────────────────────────────────────────────
+# # Orchestration
+# # ────────────────────────────────────────────────────────────────────────────
+# def evolve_with_feedback(contract_text,
+#                          n_programs=5,
+#                          n_tests=5,
+#                          max_vocab_iters=5):
+#     """
+#     High-level driver:
+#       1 seed populations → 2 Stage-1 alignment → 3 Stage-2 refinement
+#     """
+#     suite_manager = SuiteManager()
 
-    # Seed tests & programs
-    system.test_cases = system.generate_test_cases(n_tests, contract_text)
-    # default_prompts = [(lambda ct: ct) for _ in range(n_programs)] 
-    default_prompts = [
-        lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct)
-        for _ in range(n_programs)
-    ]
-    system.generate_solutions(n_programs, contract_text, default_prompts)
+#     # Seed tests & programs
+#     suite_manager.test_cases = suite_manager.generate_test_cases(n_tests, contract_text)
+#     # default_prompts = [(lambda ct: ct) for _ in range(n_programs)] 
+#     default_prompts = [
+#         lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct)
+#         for _ in range(n_programs)
+#     ]
+#     suite_manager.generate_solutions(n_programs, contract_text, default_prompts)
 
-    # Stage-1
-    if not run_vocab_alignment(system, max_iters=max_vocab_iters):
-        return
+#     # Stage-1
+#     if not run_vocab_alignment(suite_manager, max_iters=max_vocab_iters):
+#         return
 
-    # Stage-2
-    run_logic_refinement(system)
+#     # Stage-2
+#     run_logic_refinement(suite_manager)
 
 
 # ────────────────────────────────────────────────────────────────────────────
