@@ -82,7 +82,8 @@ with open("query_generation_prompt.txt", "r", encoding='utf-8') as file:
 
 
 TEST_SUITE_GENERATION_PROMPT = """
-You are given the text of an insurance contract. Your task is to generate a set of Prolog test cases that query a hypothetical Prolog encoding of this contract to determine whether or not certain scenarios are covered by the policy.
+You are given the text of an insurance contract{ref_block}.
+Your task is to generate a set of Prolog test cases that query a hypothetical Prolog encoding of this contract to determine whether or not certain scenarios are covered by the policy.
 
 Instructions:
 1. Return exactly 3 to 5 individual Prolog test cases in the form:
@@ -116,8 +117,6 @@ Insurance contract:
 
 
 
-
-
 TEST_REPAIR_PROMPT = """
 You are fixing ONE Prolog query so that its predicate names & arities match all programs shown below (keep query intent).
 ----- FAILING PROGRAMS -----
@@ -143,8 +142,21 @@ Extra instructions:
 7. DO NOT define new predicates, rules, or clauses inside the test cases. Only use executable queries that can be run in isolation.
 8. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax. DO NOT use this style in your queries.
 
-
 """
+
+
+
+REFERENCE_BLOCK = """
+You have already produced some *valid* test cases earlier:
+
+{existing_tests}
+
+When you create NEW tests, **reuse the same public predicate name
+(`is_claim_covered`) and keep its arity identical**.  Do *not* copy the
+old tests verbatim; generate fresh scenarios, but stay consistent with
+the signature you see above.
+"""
+
 
 # # --- Vocabulary Mapping Prompt ----------------------------------------------------------
 

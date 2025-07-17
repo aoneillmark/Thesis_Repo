@@ -8,7 +8,7 @@ from itertools import islice
 import datetime
 
 from evaluator import Evaluator
-from prompts import PROLOG_GENERATION_PROMPT, TEST_SUITE_GENERATION_PROMPT
+from prompts import PROLOG_GENERATION_PROMPT, TEST_SUITE_GENERATION_PROMPT, REFERENCE_BLOCK
 
 from utils import generate_content
 
@@ -83,10 +83,23 @@ class SuiteManager:
     def _run_single_test(self, canonical_program, canonical_test_fact):
         return self.evaluator._run_single_test(canonical_program, canonical_test_fact)
 
-    def generate_test_cases(self, num_cases, contract_text):
-        """Generates test cases from the contract text using the TEST_SUITE_GENERATION_PROMPT."""
+    def generate_test_cases(self, num_cases, contract_text, existing_tests=None):
+        """Generate test cases from the contract text. If `existing_tests`
+        (list[TestCase]) is provided, include them as a reference block so
+        the LLM stays consistent with arity / predicate names.
+        """
         print(f"\n--- 🧪 Generating {num_cases} Test Cases ---")
-        prompt = TEST_SUITE_GENERATION_PROMPT.format(contract_text=contract_text)
+
+        if existing_tests:
+            ref_snips = "\n".join(t.original_fact for t in existing_tests)
+            ref_block = REFERENCE_BLOCK.format(existing_tests=ref_snips)
+        else:
+            ref_block = ""
+
+        prompt = TEST_SUITE_GENERATION_PROMPT.format(
+            contract_text=contract_text,
+            ref_block=ref_block,
+        )
         raw_output = generate_content(prompt)
 
         if not raw_output:

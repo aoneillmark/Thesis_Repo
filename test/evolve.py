@@ -10,8 +10,8 @@ from prompts import PROLOG_GENERATION_PROMPT, TEST_REPAIR_PROMPT
 # ────────────────────────────────────────────────────────────────────────────
 # Configurable thresholds (spec-driven)
 # ────────────────────────────────────────────────────────────────────────────
-GOOD_THRESHOLD = 0.8   # ≥ 4/5 passes
-BAD_THRESHOLD  = 0.0   # 0/5 passes
+# GOOD_THRESHOLD = 0.8   # ≥ 4/5 passes
+# BAD_THRESHOLD  = 0.0   # 0/5 passes
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helper metrics
@@ -212,7 +212,9 @@ def evolve_until_dummy(contract_text,
                        target_n=5,
                        max_vocab_iters=5,
                        reseed_batch=3,
-                       max_rounds=10):
+                       max_rounds=10,
+                       GOOD_THRESHOLD=0.8,
+                       BAD_THRESHOLD=0.0):
     """
     High-level loop:
       • spawn / extend a SuiteManager
@@ -232,7 +234,8 @@ def evolve_until_dummy(contract_text,
         print(f"\n================  OUTER ROUND {round_no}  ================\n")
 
         # ── Stage-1 alignment ────────────────────────────────────────────
-        aligned = run_vocab_alignment(suite_manager, max_iters=max_vocab_iters)
+        aligned = run_vocab_alignment(suite_manager, max_iters=max_vocab_iters,
+                                       GOOD_THRESHOLD=0.8, BAD_THRESHOLD=0.0)
         if not aligned:
             # ── NEW: harvest anything already vocab-clean ──────────────
             clean_solutions, covered_tests = _collect_clean_sets(suite_manager)
@@ -251,7 +254,10 @@ def evolve_until_dummy(contract_text,
             missing_tests = max(0, target_n - len(covered_tests))
             if missing_tests:
                 new_tests = suite_manager.generate_test_cases(
-                    max(missing_tests, reseed_batch), contract_text)
+                    max(missing_tests, reseed_batch),
+                    contract_text,
+                    existing_tests=suite_manager.test_cases,   # reference block
+                )
                 suite_manager.test_cases.extend(new_tests)
             if missing_sols:
                 prompt_fns = [
@@ -270,7 +276,8 @@ def evolve_until_dummy(contract_text,
 
         # ── Try to activate the dummy ────────────────────────────────────
         if evolution_dummy(clean_solutions, covered_tests,
-                           target_m, target_n):
+                           target_m, target_n,
+                           GOOD_THRESHOLD=0.8, BAD_THRESHOLD=0.0):
             print("✅  Done.")
             return
 
@@ -299,7 +306,10 @@ def evolve_until_dummy(contract_text,
 # ────────────────────────────────────────────────────────────────────────────
 # Stage-1: vocabulary alignment loop
 # ────────────────────────────────────────────────────────────────────────────
-def run_vocab_alignment(suite_manager, max_iters=5):
+def run_vocab_alignment(suite_manager, 
+                        GOOD_THRESHOLD = 0.8,   # ≥ 4/5 passes
+                        BAD_THRESHOLD  = 0.0,   # 0/5 passes
+                        max_iters=5):
     """
     Continually evaluate and repair until all programs & tests reach the
     GOOD_THRESHOLD pass-rate or we hit max_iters.
@@ -419,7 +429,13 @@ if __name__ == "__main__":
         contract_text = fh.read()
 
     # e.g. want 4 vocab-clean programs and 6 vocab-clean tests
-    evolve_until_dummy(contract_text,
-                       target_m=4,
-                       target_n=6,
-                       max_vocab_iters=10)
+    evolve_until_dummy(
+        contract_text,
+        target_m=4,
+        target_n=6,
+        max_vocab_iters=10,
+        reseed_batch=3,
+        max_rounds=10,
+        GOOD_THRESHOLD=0.8,
+        BAD_THRESHOLD=0.0,
+    )
