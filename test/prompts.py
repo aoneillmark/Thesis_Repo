@@ -87,6 +87,11 @@ You are given the text of an insurance contract. Your task is to generate a set 
 Instructions:
 1. Return exactly 3 to 5 individual Prolog test cases in the form:
    test("label", prolog_query).
+**Immediately above each test case, add a single-line Prolog comment (starting
+   with `%`) that concisely explains what each argument of the query means.**
+   Example:
+     % Args: Name, DateOfBirth, Gender
+     test("basic_cover", is_mcdonalds_customer("Johnny Appleseed", 01011973, Male)).
 2. Each test case must be a valid Prolog fact, and must include a string label as the first argument and a valid Prolog *query* as the second — NOT a rule or clause. Do NOT include the `:-` operator in any test.
 3. Each test case should target a different aspect of the policy — e.g., coverage conditions, exclusions, age requirements, timing, etc.
 4. DO NOT include any explanation or text. Only output Prolog code.
@@ -107,6 +112,12 @@ Insurance contract:
 {contract_text}
 """
 
+
+
+
+
+
+
 TEST_REPAIR_PROMPT = """
 You are fixing ONE Prolog query so that its predicate names & arities match all programs shown below (keep query intent).
 ----- FAILING PROGRAMS -----
@@ -119,6 +130,11 @@ Produce ONLY the corrected test query.
 Extra instructions:
 1. Return your query in the form:
    test("label", prolog_query).
+**Immediately above the test case, add a single-line Prolog comment (starting
+   with `%`) that concisely explains what each argument of the query means.**
+   Example:
+     % Args: Name, DateOfBirth, Gender
+     test("basic_cover", is_mcdonalds_customer("Johnny Appleseed", 01011973, Male)).
 2. Each test case must be a valid Prolog fact, and must include a string label as the first argument and a valid Prolog *query* as the second — NOT a rule or clause. Do NOT include the `:-` operator in any test.
 3. DO NOT include any explanation or text. Only output Prolog code.
 4. The test case must only query the public-facing predicate `is_claim_covered` to determine whether a claim is covered. Do not directly test helper or internal predicates.

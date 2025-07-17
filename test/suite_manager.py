@@ -34,17 +34,36 @@ class CandidateSolution:
         return program
 
 class TestCase:
-    """Represents a single, atomic test case."""
-    def __init__(self, original_prolog_fact):
+    """Represents a single, atomic test case (with an optional leading comment)."""
+    def __init__(self, original_prolog_fact: str):
         self.id = f"tc_{uuid.uuid4().hex[:8]}"
-        self.original_fact = original_prolog_fact.strip()
+
+        # --- keep any leading '%' comment -------------------------------
+        lines = original_prolog_fact.strip().splitlines()
+        if lines and lines[0].lstrip().startswith("%"):
+            self.comment_line = lines[0].strip()
+            fact_line        = "\n".join(lines[1:]).strip()
+        else:
+            self.comment_line = ""
+            fact_line        = original_prolog_fact.strip()
+
+        # Store the *full* snippet (comment + fact); this is what gets
+        # surfaced later in repair_program / repair_test.
+        self.original_fact = (
+            f"{self.comment_line}\n{fact_line}" if self.comment_line else fact_line
+        )
         self.canonical_fact = None
-        self.logic_fitness = "dummy"
-        self.vocab_fitness = "dummy"
-        
-        # Extract the query goal from the fact
-        match = re.search(r"test\((?:'[^']+'|\"[^\"]+\"),\s*(.*?)\)\.", self.original_fact, re.DOTALL)
+        self.logic_fitness  = "dummy"
+        self.vocab_fitness  = "dummy"
+
+        # Extract the query goal (ignore the comment)
+        match = re.search(
+            r'test\((?:\'[^\']+\'|"[^"]+"),\s*(.*?)\)\.',
+            self.original_fact,
+            re.DOTALL,
+        )
         self.query_goal = match.group(1) if match else None
+
         
 
 # --- Main Manager Class which holds and coordinates CandidateSolutions and TestCases ---
@@ -69,7 +88,7 @@ class SuiteManager:
         print(f"\n--- 🧪 Generating {num_cases} Test Cases ---")
         prompt = TEST_SUITE_GENERATION_PROMPT.format(contract_text=contract_text)
         raw_output = generate_content(prompt)
-        
+
         if not raw_output:
             print("❌ Failed to generate test cases.")
             return []

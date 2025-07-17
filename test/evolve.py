@@ -1,7 +1,7 @@
 # evolve.py
 import os
 import random
-from collections import deque
+from collections import deque, defaultdict
 
 from suite_manager import SuiteManager
 from utils import generate_content
@@ -38,26 +38,59 @@ def compute_pass_rates(pass_matrix):
 # cyclic deque = spec’s “alternate program / test” during catastrophe
 _catastrophe = deque(["program", "test"])
 
-def select_refactor_target(prog_rates, test_rates):
+def select_refactor_target(
+    prog_rates,
+    test_rates,
+    iteration,
+    repair_attempts,
+    last_fixed_iter,
+    *,
+    max_repair_tries=2,   # give up after N failed repairs
+    cooldown_iters=1      # skip an item for N iterations after we touch it
+):
     """
-    Implements Section 4 of the Vocabulary-Alignment Feedback Loop.
+    Pick the next program/test to refactor.
+
+    An item is *ineligible* if:
+      • we've already tried to repair it `max_repair_tries` times, or
+      • it was last repaired ≤ `cooldown_iters` iterations ago.
+
+    Returns (target_kind, idx) where target_kind ∈ {"program", "test"}.
     """
-    if all(r == 0 for r in prog_rates) and all(r == 0 for r in test_rates):
+
+    candidates = []
+
+    # ---------- gather eligible programs ----------
+    for i, rate in enumerate(prog_rates):
+        key = ("program", i)
+        # exhausted?
+        if repair_attempts[key] >= max_repair_tries:
+            continue
+        # still cooling-down?
+        if key in last_fixed_iter and iteration - last_fixed_iter[key] <= cooldown_iters:
+            continue
+        candidates.append(("program", i, rate))
+
+    # ---------- gather eligible tests -------------
+    for j, rate in enumerate(test_rates):
+        key = ("test", j)
+        if repair_attempts[key] >= max_repair_tries:
+            continue
+        if key in last_fixed_iter and iteration - last_fixed_iter[key] <= cooldown_iters:
+            continue
+        candidates.append(("test", j, rate))
+
+    # ---------- if everything is blocked ----------
+    if not candidates:
+        # fall back to original catastrophe alternation
         target = _catastrophe[0]
         _catastrophe.rotate(-1)
         idx = random.randrange(len(prog_rates if target == "program" else test_rates))
         return target, idx
 
-    min_prog = min(prog_rates)
-    min_test = min(test_rates)
-
-    if min_prog < min_test:
-        return "program", prog_rates.index(min_prog)
-    if min_test < min_prog:
-        return "test", test_rates.index(min_test)
-
-    # tie ⇒ test first
-    return "test", test_rates.index(min_test)
+    # ---------- normal case: choose worst pass-rate ----------
+    target, idx, _ = min(candidates, key=lambda t: t[2])  # lower rate = worse
+    return target, idx
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -201,10 +234,34 @@ def evolve_until_dummy(contract_text,
         # ── Stage-1 alignment ────────────────────────────────────────────
         aligned = run_vocab_alignment(suite_manager, max_iters=max_vocab_iters)
         if not aligned:
-            print("🛑  Alignment failed this round - reseeding everything")
-            suite_manager = SuiteManager()          # hard reset
-            _seed_manager(suite_manager, contract_text, target_m, target_n)
-            continue
+            # ── NEW: harvest anything already vocab-clean ──────────────
+            clean_solutions, covered_tests = _collect_clean_sets(suite_manager)
+
+            print(f"⚠️  Alignment failed – salvaging "
+                  f"{len(clean_solutions)} clean solutions and "
+                  f"{len(covered_tests)} tests")
+
+            # start a *fresh* manager but keep the good stuff
+            suite_manager = SuiteManager()
+            suite_manager.solutions.extend(clean_solutions)
+            suite_manager.test_cases.extend(covered_tests)
+
+            # reseed only what’s missing
+            missing_sols  = max(0, target_m - len(clean_solutions))
+            missing_tests = max(0, target_n - len(covered_tests))
+            if missing_tests:
+                new_tests = suite_manager.generate_test_cases(
+                    max(missing_tests, reseed_batch), contract_text)
+                suite_manager.test_cases.extend(new_tests)
+            if missing_sols:
+                prompt_fns = [
+                    lambda ct, p=PROLOG_GENERATION_PROMPT:
+                        p.format(contract_text=ct)
+                    for _ in range(max(missing_sols, reseed_batch))
+                ]
+                suite_manager.generate_solutions(
+                    max(missing_sols, reseed_batch), contract_text, prompt_fns)
+            continue     # go to next outer round
 
         # ── Pick the clean solutions/tests ───────────────────────────────
         clean_solutions, covered_tests = _collect_clean_sets(suite_manager)
@@ -247,6 +304,8 @@ def run_vocab_alignment(suite_manager, max_iters=5):
     Continually evaluate and repair until all programs & tests reach the
     GOOD_THRESHOLD pass-rate or we hit max_iters.
     """
+    repair_attempts = defaultdict(int)      # key = ("program", idx) or ("test", idx)
+    last_fixed_iter = {}                    # key → iteration number
     for it in range(1, max_iters + 1):
         print(f"\n🔄  Vocabulary alignment | Iteration {it}")
         suite_manager.evaluate_fitness(iteration=it)            # populates vocab_matrix (errors)
@@ -265,7 +324,14 @@ def run_vocab_alignment(suite_manager, max_iters=5):
             print("✅ Vocabulary aligned.")
             return True
 
-        target, idx = select_refactor_target(prog_rates, test_rates)
+        target, idx = select_refactor_target(
+            prog_rates, 
+            test_rates,
+            it,
+            repair_attempts,
+            last_fixed_iter
+        )
+        
         if target == "program":
             failing_tests = [
                 suite_manager.test_cases[j] for j, ok in enumerate(pass_matrix[idx])
@@ -280,6 +346,9 @@ def run_vocab_alignment(suite_manager, max_iters=5):
             ]
             print(f"🔧 Repairing test {idx} (ID: {suite_manager.test_cases[idx].id})")
             repair_test(suite_manager, idx, failing_progs)
+        key = (target, idx)
+        repair_attempts[key] += 1
+        last_fixed_iter[key] = it
 
     print("❌ Failed to converge within max_iters.")
     return False
