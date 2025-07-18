@@ -4,6 +4,9 @@ import os
 import re
 import uuid
 import subprocess
+import re, textwrap
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 os.environ["SWI_HOME_DIR"] = r"C:\Program Files\swipl"
 
@@ -29,6 +32,11 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
                     "Error, (print_message(error, Error), writeln('__ERROR__')))),\n")
             f.write("    halt.\n")
 
+        # print("Temp file looks like this:")
+        # print(open(temp_file, "r", encoding="utf-8").read())
+        
+
+
         result = subprocess.run(
             ["swipl", "-q", "-f", temp_file],
             stdout=subprocess.PIPE,
@@ -42,14 +50,17 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
 
         if '__PASS__' in stdout:
             return True, None
-        elif '__FAIL__' in stdout:
+        if '__FAIL__' in stdout:
             return False, "Goal failed"
-        elif '__ERROR__' in stdout or "ERROR" in stderr.upper():
+        if '__TIMEOUT__' in stdout: 
+            return False, 'Timeout'
+        if '__ERROR__' in stdout or "ERROR" in stderr.upper():
             return False, f"Prolog error:\n{stdout}\n{stderr}"
         else:
             return False, f"Unexpected output:\n{stdout}\n{stderr}"
 
     except subprocess.TimeoutExpired:
+        print("Subprocess timed out.")
         return False, "Timeout"
     except Exception as e:
         return False, f"Execution error: {e}"
@@ -58,12 +69,38 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
             os.remove(temp_file)
 
 
-def extract_goal(test_fact: str):
+TEST_RE = re.compile(
+    r'''test\(            # literal "test("
+        (?:".*?"|'.*?')   # quoted name
+        \s*,\s*
+        (.*)              # GOAL (greedy)
+    \)\s*\.?\s*$          # closing )   and optional "."
+    ''', re.VERBOSE | re.DOTALL
+)
+
+
+def _drop_comments(src: str) -> str:
+    """Remove full-line `% ...` and inline comments."""
+    cleaned = []
+    for line in src.splitlines():
+        line = line.split('%', 1)[0]        # ditch inline comment part
+        if line.strip():                    # keep only non-empty code
+            cleaned.append(line)
+    return "\n".join(cleaned)
+
+def extract_goal(fact: str) -> str | None:
     """
-    Extracts the goal from test("label", Goal). format.
+    • Works whether the query is wrapped in `test(Name, Goal).`
+      or already a bare goal.
+    • Ignores leading/trailing comments & whitespace.
     """
-    test_fact = test_fact.strip().rstrip(".")
-    match = re.match(r'test\((?:"[^"]*"|\'[^\']*\')\s*,\s*(.+)\)', test_fact, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return test_fact
+    fact = textwrap.dedent(fact).strip()
+    fact = _drop_comments(fact)
+
+    m = TEST_RE.search(fact)
+    if m:
+        return m.group(1).strip().rstrip('.')
+
+    # fallback = bare goal
+    logging.debug(f"Falling back to raw goal extraction: {fact!r}")
+    return fact.rstrip('.')
