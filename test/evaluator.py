@@ -2,12 +2,14 @@
 import os
 import math
 from prolog_compiler import consult, extract_goal
+import re
 
 class Evaluator:
     def __init__(self, log_dir):
         self.log_dir = log_dir
         self.logic_matrix = []
         self.vocab_matrix = []
+        self.SIG_RE = re.compile(r'([a-z]\w*)\s*\(([^:-]*)')     # crude but fast
         os.makedirs(self.log_dir, exist_ok=True)
 
     # def save_solutions(self, solutions):
@@ -26,6 +28,20 @@ class Evaluator:
     #         for tc in test_cases:
     #             f.write((tc.canonical_fact or "❌ Invalid test case") + "\n")
 
+    # def signature_set(self, code: str) -> set[tuple[str, int]]:
+    #     """Return {(name, arity), …} for every *head* in a Prolog program."""
+    #     return {
+    #         (name, len([a for a in args.split(',') if a.strip()]))
+    #         for name, args in self.SIG_RE.findall(code)
+    #     }
+
+    # def has_arity_mismatch(self, program: str, goal: str) -> bool:
+    #     sigs = self.signature_set(program)
+    #     match = self.SIG_RE.match(goal)
+    #     if not match:
+    #         return True  # Treat it as a mismatch if the format is unrecognized
+    #     g_name, g_args = match.groups()
+    #     return (g_name, len([a for a in g_args.split(',') if a.strip()])) not in sigs
 
     def save_solutions(self, solutions, iteration=None):
         iter_dir = os.path.join(self.log_dir, f"iter_{iteration:02d}") if iteration else self.log_dir
@@ -62,13 +78,15 @@ class Evaluator:
             vocab_errors = 0
 
             for tc in test_cases:
-                result, _ = self._run_single_test(sol.canonical_program, tc.canonical_fact)
+                result, reason = self._run_single_test(sol.canonical_program, tc.canonical_fact)
+                # print(reason)
 
                 # logic matrix: 1 if logic passed, else 0
                 if result == "logic_pass":
                     logic_passes += 1
                     logic_row.append(1)
                 else:
+                    # print(f"        ↳ reason: {reason}")      # NEW LINE
                     logic_row.append(0)
 
                 # vocab matrix: 1 if vocab error, else 0
@@ -138,10 +156,17 @@ class Evaluator:
     def _run_single_test(self, program, fact):
         if not program or not fact:
             return "invalid_input", "Missing program or test fact"
+        
         goal = extract_goal(fact)
+        
         if not goal:
             return "invalid_input", "Malformed test case"
+        # if self.has_arity_mismatch(program, goal):
+        #     return "vocab_error", "Predicate name / arity mismatch"
+
+
         passed, reason = consult(program, goal)
+        
         if not passed:
             if self._is_vocab_error(reason):
                 return "vocab_error", reason
@@ -152,7 +177,7 @@ class Evaluator:
         checks = [
             "Unknown procedure",
             "ERROR: ",
-            "Singleton variables",
-            "Undefined procedure"
+            "Undefined procedure",
+            "Timeout"
         ]
         return any(msg in reason for msg in checks)
