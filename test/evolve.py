@@ -276,8 +276,7 @@ def evolve_until_dummy(contract_text,
 
         # ── Try to activate the dummy ────────────────────────────────────
         if evolution_dummy(clean_solutions, covered_tests,
-                           target_m, target_n,
-                           GOOD_THRESHOLD=0.8, BAD_THRESHOLD=0.0):
+                           target_m, target_n):
             print("✅  Done.")
             return
 
