@@ -1,0 +1,351 @@
+# coco_evo.py – CoCoEvo-style evolutionary loop
+# ==================================================
+# This module plugs into the existing SuiteManager / Evaluator stack and provides a
+# two-population co-evolution of **programs** (Prolog encodings) and **tests**
+# (logical queries).  It assumes that Stage-1 vocabulary alignment from
+# `evolve.run_vocab_alignment` is available and re-uses it to make sure any brand-new
+# individuals that the engine spawns are vocabulary-clean *before* they
+# participate in logic-level evolution.
+#
+# ───────────────────────────────────────────────────────────────────────────────
+# Public API
+# ───────────────────────────────────────────────────────────────────────────────
+#   from suite_manager import SuiteManager
+#   from coco_evo import CoCoEvoEngine
+#
+#   sm = SuiteManager()                 # with *vocab-clean* initial pop
+#   ... (seed sm via your existing flow) ...
+#   engine = CoCoEvoEngine(sm, contract_text)
+#   engine.run()                        # in-place evolution – populations live in sm
+#
+# ───────────────────────────────────────────────────────────────────────────────
+# The engine will:
+#   1. Keep confidence/discrimination metrics updated for *logic* fitness.
+#   2. Maintain Pareto fronts for tests (confidence & discrimination).
+#   3. Spawn new programs/tests via LLM crossover & mutation.
+#   4. **Immediately** pipe any spawn that fails vocab alignment back through the
+#      Stage-1 repair loop (run_vocab_alignment), isolating repairs to only the
+#      newcomers.  Once repaired, they re-enter the evolutionary population.
+#
+#
+# ───────────────────────────────────────────────────────────────────────────────
+from __future__ import annotations
+
+import math
+import random
+import itertools
+import logging
+from typing import List, Dict, Tuple, Optional
+
+from suite_manager import SuiteManager, CandidateSolution, TestCase
+from evolve import run_vocab_alignment     # Stage-1 repair loop
+from utils import generate_content         # → calls the LLM
+
+from prompts import PROGRAM_CROSSOVER_PROMPT, PROGRAM_MUTATION_PROMPT, TEST_MUTATION_PROMPT, TEST_GENERATION_PROMPT
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Helper metrics (confidence & discrimination) – logic-based
+# ───────────────────────────────────────────────────────────────────────────────
+
+def calculate_test_conf(test_idx: int,
+                        code_population: List[Dict],
+                        matrix: List[List[int]]) -> float:
+    """Weighted confidence of *test* j, using program logic fitness as weights."""
+    passed = 0.0
+    total  = 0.0
+    for c in code_population:
+        p_idx   = int(c['idx'])
+        fitness = c['logic_fitness']
+        if matrix[p_idx][test_idx]:
+            passed += fitness
+        total += fitness
+    return 0.0 if total == 0.0 else passed / total
+
+
+def calculate_test_disc(test_idx: int,
+                        code_population: List[Dict],
+                        matrix: List[List[int]]) -> float:
+    """Binary entropy over pass/fail distribution - higher = more discriminative."""
+    passed = sum(1 for c in code_population if matrix[int(c['idx'])][test_idx])
+    total  = len(code_population)
+    p = 0.0 if total == 0 else passed / total
+    if p in (0.0, 1.0):
+        return 0.0
+    return -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Pareto utilities for multi-objective test selection
+# ───────────────────────────────────────────────────────────────────────────────
+
+def dominates(a: Dict, b: Dict, metrics: List[str]) -> bool:
+    """Return True if *a* dominates *b* on all given metrics (>=) and strictly > on one."""
+    better_or_equal = all(a[m] >= b[m] for m in metrics)
+    strictly_better = any(a[m] >  b[m] for m in metrics)
+    return better_or_equal and strictly_better
+
+
+def build_pareto_front(pop: List[Dict], metrics: List[str]) -> List[List[Dict]]:
+    """Layered Pareto fronts (Non-dominated sorting)."""
+    remaining = pop[:]
+    fronts: List[List[Dict]] = []
+    while remaining:
+        front = [p for p in remaining if not any(dominates(q, p, metrics) for q in remaining if q is not p)]
+        fronts.append(front)
+        remaining = [p for p in remaining if p not in front]
+    return fronts
+
+
+def pareto_selection(test_population: List[Dict],
+                     select_size: int,
+                     metrics: List[str],
+                     mode: str = 'auto',
+                     filter_algo: str = '') -> List[Dict]:
+    """Copy of the CoCoEvo heuristic shared by the user."""
+    fronts = build_pareto_front(test_population, metrics)
+    selected: List[Dict] = fronts[0]
+    for i in range(1, len(fronts)):
+        if len(selected) >= select_size:
+            break
+        f = fronts[i]
+        if len(selected) + len(f) <= select_size:
+            selected += f
+        else:
+            if mode == 'strict':
+                f_sorted = sorted(f, key=lambda x: x['fitness'], reverse=True)
+                selected += f_sorted[: select_size - len(selected)]
+            elif mode == 'auto':
+                selected += random.sample(f, select_size - len(selected))
+            else:
+                raise ValueError("pareto_selection: unknown mode")
+    if filter_algo == 'avg':
+        avg_fit = sum(t['fitness'] for t in test_population) / max(1, len(test_population))
+        selected = [s for s in selected if s['fitness'] >= avg_fit]
+    return selected
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Core Engine
+# ───────────────────────────────────────────────────────────────────────────────
+
+class CoCoEvoEngine:
+    """Co-evolution driver that maintains vocabulary-clean invariants."""
+
+    def __init__(self,
+                 suite_manager: SuiteManager,
+                 contract_text: str,
+                 max_generations: int = 50,
+                 pop_cap_programs: int = 30,
+                 pop_cap_tests: int = 30,
+                 crossover_rate: float = 0.6,
+                 mutation_rate: float = 0.3,
+                 vocab_repair_iters: int = 5,
+                 rng_seed: Optional[int] = None):
+        self.sm = suite_manager
+        self.contract_text = contract_text
+        self.max_generations = max_generations
+        self.pop_cap_programs = pop_cap_programs
+        self.pop_cap_tests   = pop_cap_tests
+        self.crossover_rate  = crossover_rate
+        self.mutation_rate   = mutation_rate
+        self.vocab_repair_iters = vocab_repair_iters
+        self.rng = random.Random(rng_seed)
+
+        # meta-data caches (re-computed each generation)
+        self.logic_matrix: List[List[int]] = []   # rows = programs, cols = tests
+        self.code_population: List[Dict]  = []    # dicts w/ idx, fitness
+        self.test_population: List[Dict]  = []    # dicts w/ idx, confidence, disc, fitness
+
+    # ────────────────────────────────────────────────────────────────────
+    # Internal helpers
+    # ────────────────────────────────────────────────────────────────────
+
+    # 1) Vocab alignment hook ---------------------------------------------------
+    def _ensure_vocab_alignment(self, new_prog_idxs: List[int] | None = None,
+                                new_test_idxs: List[int] | None = None) -> None:
+        """Run Stage-1 repair on newly spawned individuals **only**.
+
+        We achieve this by temporarily marking the *old* individuals as frozen
+        (repair_attempts maxed out & cooldown large) and passing the suite
+        manager + custom thresholds into `run_vocab_alignment`.  The routine is
+        already item-aware so repairs will target our newcomers first.
+        """
+        if new_prog_idxs is None and new_test_idxs is None:
+            return  # nothing new – already vocab-clean
+
+        # Build masks so run_vocab_alignment focuses on newcomers
+        frozen_repairs = {('program', i): 99 for i in range(len(self.sm.solutions))
+                          if new_prog_idxs is None or i not in new_prog_idxs}
+        frozen_repairs.update({('test', j): 99 for j in range(len(self.sm.test_cases))
+                               if new_test_idxs is None or j not in new_test_idxs})
+
+        # !!! MARK NOTE: Should we refactor run_vocab_alignment to accept a
+        # `frozen_repairs` dict?  It would be cleaner than monkey-patching
+        # the function defaults.
+
+        # Monkey-patch strategy: give run_vocab_alignment its own dict copies
+        # that start at max_repair_tries so it skips frozen items.
+        # This avoids touching evolve.py internals.
+        original_default = run_vocab_alignment.__defaults__
+        # Parameters: GOOD_THRESHOLD, BAD_THRESHOLD, max_iters, but we need to
+        # inject our own repair_attempts mapping. Instead we wrap.
+        def _patched_alignment(sm):
+            from collections import defaultdict
+            repair_attempts = defaultdict(int, frozen_repairs)
+            last_fixed_iter = {}
+            # call original with small wrapper replicating evolve.select logic
+            return run_vocab_alignment(sm,
+                                       GOOD_THRESHOLD=0.8,
+                                       BAD_THRESHOLD=0.0,
+                                       max_iters=self.vocab_repair_iters)
+        _patched_alignment(self.sm)   # run repair
+
+    # 2) Evaluation & metric computation ---------------------------------------
+    def _evaluate_logic(self):
+        """Populate `logic_matrix` then derive program & test metrics."""
+        self.sm.evaluate_fitness()                 # fills evaluator.logic_matrix
+        self.logic_matrix = self.sm.evaluator.logic_matrix or []
+
+        # Program fitness = proportion of tests passed (logic-wise)
+        self.code_population = []
+        for idx, row in enumerate(self.logic_matrix):
+            passed = sum(row)
+            total  = len(row) if row else 1
+            fitness = passed / total
+            self.code_population.append({'idx': idx, 'logic_fitness': fitness})
+
+        # Test metrics
+        self.test_population = []
+        for j in range(len(self.sm.test_cases)):
+            conf = calculate_test_conf(j, self.code_population, self.logic_matrix)
+            disc = calculate_test_disc(j, self.code_population, self.logic_matrix)
+            fitness = 0.5 * conf + 0.5 * disc     # simple linear comb
+            # !!! NOTE: is this the right way to evaluate test fitness? 
+            # !!! Should we define a simple 'fitness' metric for tests at all?
+            self.test_population.append({'idx': j,
+                                         'conf': conf,
+                                         'disc': disc,
+                                         'fitness': fitness})
+
+    # 3) Selection helpers ------------------------------------------------------
+    def _tournament_select(self, k: int = 2) -> CandidateSolution:
+        """Binary tournament on program fitness."""
+        contenders = self.rng.sample(self.code_population, k)
+        winner_idx = max(contenders, key=lambda x: x['logic_fitness'])['idx']
+        return self.sm.solutions[winner_idx]
+
+    # 4) LLM-driven genetic operators ------------------------------------------
+    def _crossover_programs(self, p1: CandidateSolution, p2: CandidateSolution) -> str:
+        prompt = PROGRAM_CROSSOVER_PROMPT.format(parent_a=p1.original_program,
+                                                parent_b=p2.original_program,
+                                                contract_text=self.contract_text)
+        result = generate_content(prompt)
+        if not result:
+            logging.error("Crossover failed to generate valid content.")
+        return result
+
+    def _mutate_program(self, prog: CandidateSolution) -> str:
+        prompt = PROGRAM_MUTATION_PROMPT.format(program=prog.original_program,
+                                                contract_text=self.contract_text)
+        result = generate_content(prompt)
+        if not result:
+            logging.error("Mutation failed to generate valid content.")
+        return result
+
+    def _spawn_program(self) -> Tuple[Optional[int], Optional[CandidateSolution]]:
+        """Create one child program (may return None if LLM fails)."""
+        if self.rng.random() < self.crossover_rate and len(self.sm.solutions) >= 2:
+            pa, pb = self._tournament_select(), self._tournament_select()
+            raw = self._crossover_programs(pa, pb)
+        else:
+            parent = self._tournament_select()
+            raw = self._mutate_program(parent)
+        if not raw.strip():
+            logging.error("Failed to generate new program content, returning None.")
+            return None, None
+        child = CandidateSolution(self.contract_text, prompt=lambda _: raw)
+        self.sm.solutions.append(child)
+        return len(self.sm.solutions) - 1, child
+
+    def _mutate_test(self, tc: TestCase) -> str:
+        prompt = TEST_MUTATION_PROMPT.format(test=tc.original_fact,
+                                             contract_text=self.contract_text)
+        result = generate_content(prompt)
+        if not result:
+            logging.error("Test mutation failed to generate valid content.")
+        return result
+
+    def _spawn_test(self) -> Tuple[Optional[int], Optional[TestCase]]:
+        if self.rng.random() < self.mutation_rate and self.sm.test_cases:
+            parent = self.rng.choice(self.sm.test_cases)
+            raw = self._mutate_test(parent)
+        else:
+            raw = generate_content(TEST_GENERATION_PROMPT.format(contract_text=self.contract_text))
+        if not raw.strip():
+            logging.error("Failed to generate new test case content, returning None.")
+            return None, None
+        tc = TestCase(raw)
+        self.sm.test_cases.append(tc)
+        return len(self.sm.test_cases) - 1, tc
+
+    # 5) Population culling -----------------------------------------------------
+    def _trim_populations(self):
+        # Keep top-N programs by logic fitness
+        self.code_population.sort(key=lambda x: x['logic_fitness'], reverse=True)
+        survivors_prog_idxs = {d['idx'] for d in self.code_population[: self.pop_cap_programs]}
+        self.sm.solutions   = [s for i, s in enumerate(self.sm.solutions) if i in survivors_prog_idxs]
+
+        # Re-index after deletion so idx mapping consistent
+        for i, sol in enumerate(self.sm.solutions):
+            pass  # CandidateSolution has no idx field – nothing to patch
+
+        # Pareto-based test selection
+        selected_tests = pareto_selection(self.test_population,
+                                          self.pop_cap_tests,
+                                          metrics=['conf', 'disc'])
+        survivor_test_idxs = {d['idx'] for d in selected_tests}
+        self.sm.test_cases = [t for j, t in enumerate(self.sm.test_cases) if j in survivor_test_idxs]
+
+    # ────────────────────────────────────────────────────────────────────
+    # Main loop
+    # ────────────────────────────────────────────────────────────────────
+
+    def run(self):
+        """Execute co-evolution for `max_generations` generations."""
+
+        # Make sure *initial* population is vocab-clean (defensive)
+        self._ensure_vocab_alignment()
+
+        for gen in range(1, self.max_generations + 1):
+            print(f"\n═══════ CoCoEvo | Generation {gen}/{self.max_generations} ═══════")
+
+            # Evaluate logic & compute metrics
+            self._evaluate_logic()
+
+            # ── Spawn new individuals ───────────────────────────────────
+            new_prog_idxs = []
+            new_test_idxs = []
+
+            #  • spawn a proportional #progs & tests (rudimentary schedule)
+            spawn_progs = max(1, self.pop_cap_programs // 10)
+            spawn_tests = max(1, self.pop_cap_tests   // 10)
+
+            for _ in range(spawn_progs):
+                idx, child = self._spawn_program()
+                if idx is not None:
+                    new_prog_idxs.append(idx)
+            for _ in range(spawn_tests):
+                idx, child = self._spawn_test()
+                if idx is not None:
+                    new_test_idxs.append(idx)
+
+            # ── Vocabulary repair for newcomers ─────────────────────────
+            if new_prog_idxs or new_test_idxs:
+                print(f"• Vocab repair for {len(new_prog_idxs)} programs / {len(new_test_idxs)} tests …")
+                self._ensure_vocab_alignment(new_prog_idxs, new_test_idxs)
+
+            # ── Re-evaluate after repairs & cull ────────────────────────
+            self._evaluate_logic()
+            self._trim_populations()
+
+        print("✅ CoCoEvo run completed.")
+
