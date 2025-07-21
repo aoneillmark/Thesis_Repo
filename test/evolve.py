@@ -108,6 +108,7 @@ def _seed_manager(sm, contract_text, n_solutions, n_tests):
         for _ in range(n_solutions)
     ]
     sm.generate_solutions(n_solutions, contract_text, prompt_fns)
+    sm.evaluate_fitness(scope="seeds")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -237,9 +238,10 @@ def evolve_until_dummy(
         # ── Stage‑1 alignment ───────────────────────────────────────────
         aligned = run_vocab_alignment(
             suite_manager,
-            GOOD_THRESHOLD=GOOD_THRESHOLD,
-            BAD_THRESHOLD=BAD_THRESHOLD,
-            max_iters=max_vocab_iters,
+            round_tag = f"vocab_round_{round_no:02d}",
+            GOOD_THRESHOLD = GOOD_THRESHOLD,
+            BAD_THRESHOLD  = BAD_THRESHOLD,
+            max_iters      = max_vocab_iters,
         )
 
         # ────────────────────────────────────────────────────────────
@@ -338,10 +340,12 @@ def evolve_until_dummy(
 def run_vocab_alignment(
     suite_manager,
     *,
-    GOOD_THRESHOLD=0.8,  # ≥ 4/5 passes
-    BAD_THRESHOLD=0.0,   # 0/5 passes
+    round_tag: str = "vocab_round_00",   # NEW – eg. "vocab_round_03"
+    GOOD_THRESHOLD=0.8,
+    BAD_THRESHOLD=0.0,
     max_iters=5,
 ):
+
     """
     Continually evaluate and repair until all programs & tests reach the
     GOOD_THRESHOLD pass‑rate or we hit max_iters.
@@ -351,7 +355,8 @@ def run_vocab_alignment(
 
     for it in range(1, max_iters + 1):
         print(f"\n🔄  Vocabulary alignment | Iteration {it}")
-        suite_manager.evaluate_fitness(iteration=it)  # populates vocab_matrix
+        scope = f"{round_tag}/iter_{it:02d}"
+        suite_manager.evaluate_fitness(scope=scope)
 
         error_matrix = suite_manager.evaluator.vocab_matrix
         pass_matrix = [[1 - cell for cell in row] for row in error_matrix]

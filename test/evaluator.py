@@ -3,14 +3,14 @@ import os
 import math
 from prolog_compiler import consult, extract_goal
 import re
+from logging_utils import LogManager
 
 class Evaluator:
-    def __init__(self, log_dir):
-        self.log_dir = log_dir
+    def __init__(self, log_manager: LogManager):
+        self.logm = log_manager
         self.logic_matrix = []
         self.vocab_matrix = []
-        self.SIG_RE = re.compile(r'([a-z]\w*)\s*\(([^:-]*)')     # crude but fast
-        os.makedirs(self.log_dir, exist_ok=True)
+        self.SIG_RE = re.compile(r'([a-z]\w*)\s*\(([^:-]*)')
 
     # def save_solutions(self, solutions):
     #     for sol in solutions:
@@ -20,7 +20,7 @@ class Evaluator:
     #             f.write(sol.canonical_program or "❌ No canonical program available.")
 
 
-    # def save_test_cases(self, test_cases):
+    # def save_test_cases(self, test_cases): 
     #     for tc in test_cases:
     #         tc.canonical_fact = tc.original_fact
     #     test_log = os.path.join(self.log_dir, "test_cases.pl")
@@ -62,16 +62,49 @@ class Evaluator:
             for tc in test_cases:
                 f.write((tc.canonical_fact or "❌ Invalid test case") + "\n")
 
-    def evaluate(self, solutions, test_cases, iteration=None):
-        print("\n--- 🏆 Starting Evaluation ---")
-        self.save_solutions(solutions, iteration)
-        self.save_test_cases(test_cases, iteration)
+    def _dump_programs(self, solutions, folder):
+        folder.mkdir(parents=True, exist_ok=True)
+        for sol in solutions:
+            (folder / f"{sol.id}.pl").write_text(sol.original_program or "")
+
+    def _dump_tests(self, test_cases, file_path):
+        file_path.write_text("\n".join(tc.original_fact for tc in test_cases))
+
+
+    def evaluate(self, solutions, test_cases, scope: str):
+        """
+        `scope` is a *relative* path like:
+            "evo_gen_0004/pre"           (logic loop - before spawn/repair)
+            "vocab_round_02/iter_03"     (inner vocab repair loop)
+            "seeds"
+        """
+        # ---------- make sure canonical_* exist ----------
+        for sol in solutions:
+            if not getattr(sol, "canonical_program", None):
+                sol.canonical_program = sol.original_program
+        for tc in test_cases:
+            if not getattr(tc, "canonical_fact", None):
+                tc.canonical_fact = tc.original_fact
+        
+        workdir = self.logm.path(scope)   # ⇢ mkdir plus absolute Path back
+        print(f"\n--- 🏆 Eval @ {workdir.relative_to(self.logm.run_dir)} ---")
 
         logic_matrix = []
         vocab_matrix = []
 
-        # Evaluate each solution against each test
+        # save artefacts in that folder --------------
+        self._dump_programs(solutions, workdir / "solutions")
+        self._dump_tests(test_cases, workdir / "tests.pl")
+        ...
+        # after computing metrics:
         for sol in solutions:
+            self.logm.write_row(
+                f"{scope}/metrics.csv",
+                dict(scope=scope,
+                     sol_id=sol.id,
+                     logic=sol.logic_fitness,
+                     vocab=sol.vocab_fitness)
+            )
             logic_row = []
             vocab_row = []
             logic_passes = 0
@@ -155,11 +188,13 @@ class Evaluator:
 
     def _run_single_test(self, program, fact):
         if not program or not fact:
+            print("❌ Error: Missing program or test fact.")
             return "invalid_input", "Missing program or test fact"
         
         goal = extract_goal(fact)
         
         if not goal:
+            print("❌ Error: Malformed test case.")
             return "invalid_input", "Malformed test case"
         # if self.has_arity_mismatch(program, goal):
         #     return "vocab_error", "Predicate name / arity mismatch"

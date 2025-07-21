@@ -11,14 +11,18 @@ from evaluator import Evaluator
 from prompts import PROLOG_GENERATION_PROMPT, TEST_SUITE_GENERATION_PROMPT, REFERENCE_BLOCK
 
 from utils import generate_content
+from logging_utils import LogManager
 
 # --- Core System Classes ---
 
 class CandidateSolution:
-    def __init__(self, contract_text, prompt=None):
+    def __init__(self, contract_text, prompt=None, program_text=None):
         self.id = f"sol_{uuid.uuid4().hex[:8]}"
-        print(f"\n🧬 Creating Solution {self.id}...")
-        self.original_program = self._generate_program(contract_text, prompt)
+        if program_text is not None:          # ← skip LLM call
+            self.original_program = program_text.strip()
+        else:
+            print(f"\n🧬 Creating Solution {self.id}...")
+            self.original_program = self._generate_program(contract_text, prompt)
         self.canonical_program = None
         self.logic_fitness = "dummy"
         self.vocab_fitness = "dummy"
@@ -68,17 +72,17 @@ class TestCase:
 
 # --- Main Manager Class which holds and coordinates CandidateSolutions and TestCases ---
 class SuiteManager:
-    def __init__(self, log_dir=None):
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.log_dir = log_dir or f"logs/run_{timestamp}"
-        os.makedirs(self.log_dir, exist_ok=True)
+    def __init__(self, *, log_root="logs", run_id=None):
+        # one LogManager for the whole run
+        self.logm = LogManager(root=log_root, run_id=run_id)
 
-        self.solutions = []
-        self.test_cases = []
-        self.evaluator = Evaluator(self.log_dir)
+        self.solutions   = []
+        self.test_cases  = []
+        self.evaluator   = Evaluator(self.logm)
 
-    def evaluate_fitness(self, iteration=None):
-        self.evaluator.evaluate(self.solutions, self.test_cases, iteration)
+
+    def evaluate_fitness(self, *, scope="adhoc"):
+        self.evaluator.evaluate(self.solutions, self.test_cases, scope)
     
     def _run_single_test(self, canonical_program, canonical_test_fact):
         return self.evaluator._run_single_test(canonical_program, canonical_test_fact)
@@ -111,7 +115,7 @@ class SuiteManager:
         print(f"✅ Generated {len(parsed)} test cases.")
 
         # Save the raw output to a file for debugging
-        raw_output_path = os.path.join(self.log_dir, "raw_test_cases.txt")
+        raw_output_path = self.logm.run_dir / "raw_test_cases.txt" # this is a relative path; the divide sign is overloaded; meaning "join"
         with open(raw_output_path, "w", encoding="utf-8") as f:
             f.write(raw_output)
         
@@ -138,7 +142,8 @@ class SuiteManager:
                 print(f"⏭️ Skipping solution {i + 1} (vocab-valid and frozen)")
                 continue
             prompt = prompt_fns[i](contract_text) if prompt_fns and i < len(prompt_fns) else None
-            candidate = CandidateSolution(contract_text, prompt)
+            candidate = CandidateSolution(contract_text, prompt=prompt)
+            # print(f"✅ Generated Solution {candidate.id} with program length {len(candidate.original_program) if candidate.original_program else 0} chars.")
             self.solutions.append(candidate)
 
 
