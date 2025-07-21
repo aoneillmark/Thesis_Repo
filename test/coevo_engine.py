@@ -145,7 +145,7 @@ def pareto_selection(test_population: List[Dict],
 # ---------------------------------------------------------------------------
 
 class CoCoEvoEngine:
-    """Co‑evolution driver maintaining vocabulary‑clean invariants."""
+    """Co-evolution driver maintaining vocabulary-clean invariants."""
 
     # ---------------------------------------------------------------------
     # Construction
@@ -183,20 +183,20 @@ class CoCoEvoEngine:
     def _ensure_vocab_alignment(self,
                                 new_prog_idxs: List[int] | None = None,
                                 new_test_idxs: List[int] | None = None) -> None:
-        """Run Stage‑1 repair on newly spawned individuals **only**."""
+        """Run Stage-1 repair on newly spawned individuals **only**."""
         if not new_prog_idxs and not new_test_idxs:
             return  # nothing to repair
         run_vocab_alignment(self.sm, max_iters=self.vocab_repair_iters)
 
     # 2) Evaluation & metric computation --------------------------------
-    def _evaluate_logic(self, generation: int | None = None):
+    def _evaluate_logic(self, *, scope: str):
         """Populate ``logic_matrix`` then derive program & test metrics."""
-        self.sm.evaluate_fitness(iteration=generation)
+        self.sm.evaluate_fitness(scope=scope)
         self.logic_matrix = self.sm.evaluator.logic_matrix or []
 
         # Filter out solutions whose program failed to compile / is empty
         valid_pairs = [(i, s) for i, s in enumerate(self.sm.solutions)
-                       if s.original_program and s.original_program.strip()]
+                       if (s.original_program and s.original_program.strip())]
         if len(valid_pairs) < len(self.sm.solutions):
             self.sm.solutions = [s for _, s in valid_pairs]
             self.logic_matrix = [self.logic_matrix[i] for i, _ in valid_pairs]
@@ -264,9 +264,13 @@ class CoCoEvoEngine:
         if not raw.strip():
             logger.error("LLM returned empty program – spawn aborted.")
             return None, None
-        child = CandidateSolution(self.contract_text, prompt=lambda _: raw)
+        
+        
+        child = CandidateSolution(self.contract_text, program_text=raw)
         if not child.original_program or not child.original_program.strip():
+            print("❌ Spawned program is empty or invalid.")
             return None, None
+        
         self.sm.solutions.append(child)
         return len(self.sm.solutions) - 1, child
 
@@ -323,7 +327,8 @@ class CoCoEvoEngine:
             print(f"\n═══════ CoCoEvo | Generation {gen}/{self.max_generations} ═══════")
 
             # Evaluate & compute metrics
-            self._evaluate_logic(generation=gen)
+            pre = f"evo_gen_{gen:04d}/pre"
+            self._evaluate_logic(scope=pre)
 
             # ---------------- Spawn ----------------
             new_prog_idxs: List[int] = []
@@ -343,7 +348,8 @@ class CoCoEvoEngine:
                 self._ensure_vocab_alignment(new_prog_idxs, new_test_idxs)
 
             # Re‑evaluate after repairs & cull
-            self._evaluate_logic(generation=gen)
+            post = f"evo_gen_{gen:04d}/post"
+            self._evaluate_logic(scope=post)
             self._trim_populations()
 
         print("✅ CoCoEvo run completed.")
