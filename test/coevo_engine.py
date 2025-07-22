@@ -183,10 +183,36 @@ class CoCoEvoEngine:
     def _ensure_vocab_alignment(self,
                                 new_prog_idxs: List[int] | None = None,
                                 new_test_idxs: List[int] | None = None) -> None:
-        """Run Stage-1 repair on newly spawned individuals **only**."""
+        """Run Stage‑1 repair on newly spawned individuals **only**."""
         if not new_prog_idxs and not new_test_idxs:
             return  # nothing to repair
-        run_vocab_alignment(self.sm, max_iters=self.vocab_repair_iters)
+        return run_vocab_alignment(self.sm, max_iters=self.vocab_repair_iters)
+
+    # 1-b) Emergency reseed ---------------------------------------------
+    def _reseed_populations(self):
+        """Hard-reset both populations when vocab repair cannot recover fitness."""
+        logger.warning("Reseeding ALL programs & tests - vocab repair exhausted with 0/N fitness.")
+
+        # Drop existing individuals
+        self.sm.solutions.clear()
+        self.sm.test_cases.clear()
+
+        # Fresh seed via existing spawning helpers – ensures Stage-1 alignment
+        # for _ in range(self.pop_cap_programs):
+        #     self._spawn_program()
+        # for _ in range(self.pop_cap_tests):
+        #     self._spawn_test()
+        self.sm.generate_solutions(
+            num_solutions=self.pop_cap_programs,
+            contract_text=self.contract_text,
+        )
+        self.sm.test_cases = self.sm.generate_test_cases(
+            num_cases=self.pop_cap_tests,
+            contract_text=self.contract_text,
+        )
+
+        # One final vocab alignment pass for the brand-new population
+        self._ensure_vocab_alignment()
 
     # 2) Evaluation & metric computation --------------------------------
     def _evaluate_logic(self, *, scope: str):
@@ -270,10 +296,11 @@ class CoCoEvoEngine:
         if not child.original_program or not child.original_program.strip():
             print("❌ Spawned program is empty or invalid.")
             return None, None
-        
+
         self.sm.solutions.append(child)
         return len(self.sm.solutions) - 1, child
 
+    # --------------------------  TESTS  ----------------------------------
     def _mutate_test(self, tc: TestCase) -> str:
         prompt = TEST_MUTATION_PROMPT.format(
             test=tc.original_fact,
@@ -285,18 +312,43 @@ class CoCoEvoEngine:
         return result or ""
 
     def _spawn_test(self) -> Tuple[Optional[int], Optional[TestCase]]:
-        if self.rng.random() < self.mutation_rate and self.sm.test_cases:
+        """Spawn a *predicate‑shape‑preserving* test case.
+
+        The new strategy is:
+        • **Prefer mutation** of an existing test (prob = `mutation_rate`).
+        • If generating from scratch, pass *up to 5 exemplar tests* to the LLM and
+          *explicitly* instruct it to keep *exactly the same* predicate signatures &
+          arity.  This prevents the engine from introducing facts that the logic
+          vocabulary cannot recognise.
+        """
+        use_mutation = self.sm.test_cases and (self.rng.random() < self.mutation_rate)
+
+        if use_mutation:
             parent = self.rng.choice(self.sm.test_cases)
             raw = self._mutate_test(parent)
         else:
-            raw = generate_content(
-                TEST_GENERATION_PROMPT.format(contract_text=self.contract_text)
+            exemplars = "\n".join(t.original_fact for t in self.sm.test_cases[:5]) if self.sm.test_cases else ""
+            guidance = (
+                """
+                You are generating a *new* logical query (test case) to challenge the 
+                current Prolog encoding of the insurance contract.  The test *must* 
+                use **exactly the same predicate names and number of arguments** as 
+                those shown below.  Think of a novel *scenario* or edge-case that the 
+                contract might cover, but keep the *shape* identical.  
+                Return a test in a similar format as the exemplars, matching the signature (arity and arguments).
+                """ # This is an example of the format you should use, but make sure to use the predicate signatures provided in the exemplar tests later: \n % Args: Name, Age, Activity \n test("Scenario description", is_claim_covered("John", 67, "skydiving")).
             )
+            prompt = (
+                f"{TEST_GENERATION_PROMPT}\n\n{guidance}\n\n"  # base task description
+                f"# Exemplar tests (keep shape)\n{exemplars}\n\n# → New test:"
+            )
+            raw = generate_content(prompt)
             if not raw:
                 logger.error("Test generation failed – empty result from LLM.")
         if not raw or not raw.strip():
             return None, None
-        tc = TestCase(raw)
+
+        tc = TestCase(raw.strip())
         self.sm.test_cases.append(tc)
         return len(self.sm.test_cases) - 1, tc
 
