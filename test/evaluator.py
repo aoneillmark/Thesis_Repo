@@ -75,15 +75,16 @@ class Evaluator:
                     logic_row.append(0)
 
                 # ---------- vocab matrix (1 = pass) ----------
-                if (result != "vocab_error"):
+                if (result != "vocab_error" and
+                        result != "other_error"):
                     vocab_passes += 1
                     vocab_row.append(1)
                 else:
                     vocab_row.append(0)
 
                 # ---------- unexpected outcome ---------------
-                if result not in ("logic_pass", "logic_fail", "vocab_error"):
-                    print(f"        ⚠️  Unclassified outcome [{result}] – {reason}")
+                if result not in ("logic_pass", "logic_error", "vocab_error"):
+                    print(f"        ⚠️  Unclassified outcome [{result}] - {reason}")
 
             total = len(test_cases) or 1
             sol.logic_fitness = logic_passes / total
@@ -161,8 +162,10 @@ class Evaluator:
         if not passed:
             if self._is_vocab_error(reason):
                 return "vocab_error", reason
-            print(f"This is a logic failure: {reason}")
-            return "logic_fail", reason
+            if self._is_logic_error(reason):
+                return "logic_error", reason
+            if not self._is_logic_error(reason) and not self._is_vocab_error(reason):
+                return "other_error", reason
         return "logic_pass", None
 
     @staticmethod
@@ -171,4 +174,12 @@ class Evaluator:
             return False
         return any(substr in reason for substr in (
             "Unknown procedure", "Undefined procedure", "ERROR:"
+        ))
+
+    @staticmethod
+    def _is_logic_error(reason: str | None) -> bool:
+        if not reason:
+            return False
+        return any(substr in reason for substr in (
+            "Goal failed"
         ))
