@@ -22,6 +22,7 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
         return False, "Missing code or goal"
 
     temp_file = f"temp_prog_{uuid.uuid4().hex[:8]}.pl"
+    keep_file = False 
 
     try:
         with open(temp_file, "w", encoding="utf-8") as f:
@@ -36,9 +37,17 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
         # print(open(temp_file, "r", encoding="utf-8").read())
         
 
+        # cmd = [
+        #     "swipl", "--quiet",
+        #     "--on-error=halt",      # <-- die on *any* error, no prompt :contentReference[oaicite:0]{index=0}
+        #     "-g", "main", "-t", "halt",
+        #     "-s", temp_file
+        # ]
 
+        cmd = ["swipl", "-q", "-f", temp_file]
+        
         result = subprocess.run(
-            ["swipl", "-q", "-f", temp_file],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=timeout,
@@ -56,16 +65,21 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
             return False, 'Timeout'
         if '__ERROR__' in stdout or "ERROR" in stderr.upper():
             return False, f"Prolog error:\n{stdout}\n{stderr}"
+        # if 'Missing program or test fact' in stdout:
+        #     return False, "Missing program or test fact"
         else:
+            print(f"⚠️ Unexpected output:\n{stdout}\n{stderr}")
             return False, f"Unexpected output:\n{stdout}\n{stderr}"
 
     except subprocess.TimeoutExpired:
         print("Subprocess timed out.")
+        keep_file = True
         return False, "Timeout"
     except Exception as e:
         return False, f"Execution error: {e}"
     finally:
-        if os.path.exists(temp_file):
+        # if os.path.exists(temp_file) and not keep_file:
+        if os.path.exists(temp_file) and not keep_file:
             os.remove(temp_file)
 
 
