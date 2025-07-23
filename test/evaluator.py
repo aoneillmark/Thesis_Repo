@@ -56,11 +56,13 @@ class Evaluator:
         self._dump_tests(test_cases, workdir / "tests.pl")
 
         self.logic_matrix, self.vocab_matrix = [], []
+        self.errors_matrix = []
 
         # ───────────────── solution-level loop ──────────────────────────
         for sol in solutions:
             logic_row, vocab_row = [], []
             logic_passes, vocab_passes = 0, 0
+            error_row = []
 
             for tc in test_cases:
                 result, reason = self._run_single_test(
@@ -85,6 +87,9 @@ class Evaluator:
                 # ---------- unexpected outcome ---------------
                 if result not in ("logic_pass", "logic_error", "vocab_error"):
                     print(f"        ⚠️  Unclassified outcome [{result}] - {reason}")
+                
+                # ---------- error row ------------------------
+                error_row.append(reason or "")
 
             total = len(test_cases) or 1
             sol.logic_fitness = logic_passes / total
@@ -92,6 +97,7 @@ class Evaluator:
 
             self.logic_matrix.append(logic_row)
             self.vocab_matrix.append(vocab_row)
+            self.errors_matrix.append(error_row)
 
             print(f"  🔍 Solution {sol.id} logic_fitness: "
                   f"{sol.logic_fitness:.2f} ({logic_passes}/{total})")
