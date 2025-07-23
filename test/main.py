@@ -19,19 +19,21 @@ if __name__ == "__main__":
         (lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct))
         for _ in range(4)
     ]
+    
     sm.generate_solutions(num_solutions=4,
                           contract_text=contract_text,
                           prompt_fns=sol_prompts)
 
-    # ── 2. Stage-1: vocabulary alignment (re-uses evolve.py) ───────────
-    run_vocab_alignment(sm, max_iters=10)
+    # n.b. not necessary since we do it in run()
+    # # ── 2. Stage-1: vocabulary alignment (re-uses evolve.py) ───────────
+    # run_vocab_alignment(sm, max_iters=10)
 
     # ── 3. Stage-2: logic-level co-evolution ───────────────────────────
     engine = CoCoEvoEngine(sm,
                            contract_text,
-                           max_generations=30,     # tweak as desired
-                           pop_cap_programs=30,
-                           pop_cap_tests=30)
+                           max_generations=10,     # tweak as desired
+                           pop_cap_programs=10,
+                           pop_cap_tests=10)
     engine.run()
 
     # (Optional) dump a summary
