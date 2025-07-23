@@ -173,7 +173,7 @@ class Evaluator:
         if not reason:
             return False
         return any(substr in reason for substr in (
-            "Unknown procedure", "Undefined procedure", "ERROR:"
+            "Unknown procedure", "Undefined procedure", "ERROR:", "Syntax error",
         ))
 
     @staticmethod
