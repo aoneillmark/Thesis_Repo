@@ -1,4 +1,4 @@
-# coco_evo.py – CoCoEvo-style evolutionary loop
+# coco_evo.py - CoCoEvo-style evolutionary loop
 # ==================================================
 # This module plugs into the existing SuiteManager / Evaluator stack and provides a
 # two-population co-evolution of **programs** (Prolog encodings) and **tests**
@@ -16,7 +16,7 @@
 #   sm = SuiteManager()                 # with *vocab-clean* initial pop
 #   ... (seed sm via your existing flow) ...
 #   engine = CoCoEvoEngine(sm, contract_text)
-#   engine.run()                        # in-place evolution – populations live in sm
+#   engine.run()                        # in-place evolution - populations live in sm
 #
 # ───────────────────────────────────────────────────────────────────────────────
 # The engine will:
@@ -38,7 +38,7 @@ import logging
 from typing import List, Dict, Tuple, Optional
 
 from suite_manager import SuiteManager, CandidateSolution, TestCase
-from evolve import run_vocab_alignment                 # Stage‑1 repair
+from evolve import run_vocab_alignment                 # Stage-1 repair
 from utils import generate_content                     # → calls the LLM
 from prompts import (
     PROGRAM_CROSSOVER_PROMPT,
@@ -56,8 +56,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 # ---------------------------------------------------------------------------
-# Helper metrics (confidence & discrimination) – logic‑based
+# Helper metrics (confidence & discrimination) - logic-based
 # ---------------------------------------------------------------------------
 
 def calculate_test_conf(test_idx: int,
@@ -82,7 +83,7 @@ def calculate_test_conf(test_idx: int,
 def calculate_test_disc(test_idx: int,
                         code_population: List[Dict],
                         matrix: List[List[int]]) -> float:
-    """Binary entropy over pass/fail distribution – higher ⇒ more discriminative."""
+    """Binary entropy over pass/fail distribution - higher ⇒ more discriminative."""
     passed = sum(1 for c in code_population if matrix[int(c["idx"])][test_idx])
     total = len(code_population)
     p = 0.0 if total == 0 else passed / total
@@ -91,7 +92,7 @@ def calculate_test_disc(test_idx: int,
     return -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
 
 # ---------------------------------------------------------------------------
-# Pareto utilities for multi‑objective test selection
+# Pareto utilities for multi-objective test selection
 # ---------------------------------------------------------------------------
 
 def dominates(a: Dict, b: Dict, metrics: List[str]) -> bool:
@@ -102,7 +103,7 @@ def dominates(a: Dict, b: Dict, metrics: List[str]) -> bool:
 
 
 def build_pareto_front(pop: List[Dict], metrics: List[str]) -> List[List[Dict]]:
-    """Layered Pareto fronts (non‑dominated sorting)."""
+    """Layered Pareto fronts (non-dominated sorting)."""
     remaining = pop[:]
     fronts: List[List[Dict]] = []
     while remaining:
@@ -118,7 +119,7 @@ def pareto_selection(test_population: List[Dict],
                      metrics: List[str],
                      mode: str = "auto",
                      filter_algo: str = "") -> List[Dict]:
-    """Heuristic from the CoCoEvo paper for picking a Pareto‑optimal subset."""
+    """Heuristic from the CoCoEvo paper for picking a Pareto-optimal subset."""
     fronts = build_pareto_front(test_population, metrics)
     selected: List[Dict] = fronts[0]
     for i in range(1, len(fronts)):
@@ -170,7 +171,7 @@ class CoCoEvoEngine:
         self.vocab_repair_iters = vocab_repair_iters
         self.rng = random.Random(rng_seed)
 
-        # Caches – re‑computed each generation
+        # Caches - re-computed each generation
         self.logic_matrix: List[List[int]] = []   # rows = programs, cols = tests
         self.code_population: List[Dict] = []     # {'idx', 'logic_fitness'}
         self.test_population: List[Dict] = []     # {'idx', conf, disc, fitness}
@@ -183,9 +184,7 @@ class CoCoEvoEngine:
     def _ensure_vocab_alignment(self,
                                 new_prog_idxs: List[int] | None = None,
                                 new_test_idxs: List[int] | None = None) -> None:
-        """Run Stage‑1 repair on newly spawned individuals **only**."""
-        if not new_prog_idxs and not new_test_idxs:
-            return  # nothing to repair
+        """Run Stage-1 repair on newly spawned individuals **only**."""
         return run_vocab_alignment(self.sm, max_iters=self.vocab_repair_iters)
 
     # 1-b) Emergency reseed ---------------------------------------------
@@ -197,7 +196,7 @@ class CoCoEvoEngine:
         self.sm.solutions.clear()
         self.sm.test_cases.clear()
 
-        # Fresh seed via existing spawning helpers – ensures Stage-1 alignment
+        # Fresh seed via existing spawning helpers - ensures Stage-1 alignment
         # for _ in range(self.pop_cap_programs):
         #     self._spawn_program()
         # for _ in range(self.pop_cap_tests):
@@ -213,6 +212,55 @@ class CoCoEvoEngine:
 
         # One final vocab alignment pass for the brand-new population
         self._ensure_vocab_alignment()
+    
+    # ---------------------------------------------------------------------------
+    # Cosine Scheduler
+    # ---------------------------------------------------------------------------
+    def cosine_scheduler(self, step: int, total_steps: int,
+                        max_p: float = 0.9, min_p: float = 0.1) -> float:
+        """
+        Cosine-annealed probability between `max_p` (at step 0)
+        and `min_p`  (at step total_steps).
+        """
+        cos_val = (1 - math.cos(math.pi * step / total_steps)) / 2   # 1→0
+        return min_p + (max_p - min_p) * cos_val
+    # ---------------------------------------------------------------------------
+
+    # --------------------------------------------------------------
+    # (A) Helper: locate current best program after each evaluation
+    # --------------------------------------------------------------
+    def _best_program(self) -> Tuple[int, CandidateSolution]:
+        best = max(self.code_population, key=lambda x: x["logic_fitness"])
+        return best["idx"], self.sm.solutions[best["idx"]]
+
+    # --------------------------------------------------------------
+    # (B) Helper: run Pbest on all tests and build feedback object
+    # --------------------------------------------------------------
+    def _program_feedback(self, p_idx: int) -> Dict:
+        status = self.logic_matrix[p_idx]              # 1 = pass, 0 = fail
+        failing = [self.sm.test_cases[j].original_fact
+                for j, ok in enumerate(status) if not ok]
+        passing  = [self.sm.test_cases[j].original_fact
+                for j, ok in enumerate(status) if ok]
+        return {"failing": failing, "passing": passing}
+
+
+    # --------------------------------------------------------------
+    # (C) Spawn tests *with feedback*
+    # --------------------------------------------------------------
+    def _spawn_test_feedback(self, feedback: Dict) -> Optional[int]:
+        prompt = TEST_GENERATION_PROMPT.format(
+            contract_text=self.contract_text,
+            program=self._best_program()[1].original_program,
+            failing="\n".join(feedback["failing"][:5]),  # show up to 5
+            passing="\n".join(feedback["passing"][:5]),
+        )
+        raw = generate_content(prompt)
+        if not raw or not raw.strip():
+            return None
+        tc = TestCase(raw.strip())
+        self.sm.test_cases.append(tc)
+        return len(self.sm.test_cases) - 1
 
     # 2) Evaluation & metric computation --------------------------------
     def _evaluate_logic(self, *, scope: str):
@@ -256,8 +304,14 @@ class CoCoEvoEngine:
         contenders = self.rng.sample(self.code_population, k)
         winner_idx = max(contenders, key=lambda x: x["logic_fitness"])["idx"]
         return self.sm.solutions[winner_idx]
+    
+    def _random_select(self) -> CandidateSolution:
+        """Select a random solution from the population."""
+        if not self.sm.solutions:
+            return None
+        return self.rng.choice(self.sm.solutions)
 
-    # 4) LLM‑driven genetic operators ------------------------------------
+    # 4) LLM-driven genetic operators ------------------------------------
     def _crossover_programs(self, p1: CandidateSolution, p2: CandidateSolution) -> str:
         prompt = PROGRAM_CROSSOVER_PROMPT.format(
             parent_a=p1.original_program,
@@ -266,7 +320,7 @@ class CoCoEvoEngine:
         )
         result = generate_content(prompt)
         if not result:
-            logger.error("Crossover failed – empty result from LLM.")
+            print("Crossover failed - empty result from LLM.")
         return result or ""
 
     def _mutate_program(self, prog: CandidateSolution) -> str:
@@ -276,21 +330,18 @@ class CoCoEvoEngine:
         )
         result = generate_content(prompt)
         if not result:
-            logger.error("Mutation failed – empty result from LLM.")
+            print("Mutation failed - empty result from LLM.")
         return result or ""
 
-    def _spawn_program(self) -> Tuple[Optional[int], Optional[CandidateSolution]]:
+    def _spawn_program(self, use_crossover: bool = True, pa: Optional[CandidateSolution] = None, pb: Optional[CandidateSolution] = None) -> Tuple[Optional[int], Optional[CandidateSolution]]:
         """Create a child program; return ``(idx, sol)`` or ``(None, None)``."""
-        if self.rng.random() < self.crossover_rate and len(self.sm.solutions) >= 2:
-            pa, pb = self._tournament_select(), self._tournament_select()
+        if use_crossover and len(self.sm.solutions) >= 2:
             raw = self._crossover_programs(pa, pb)
         else:
-            parent = self._tournament_select()
-            raw = self._mutate_program(parent)
+            raw = self._mutate_program(pa)
         if not raw.strip():
-            logger.error("LLM returned empty program – spawn aborted.")
+            print("LLM returned empty program - spawn aborted.")
             return None, None
-        
         
         child = CandidateSolution(self.contract_text, program_text=raw)
         if not child.original_program or not child.original_program.strip():
@@ -308,100 +359,203 @@ class CoCoEvoEngine:
         )
         result = generate_content(prompt)
         if not result:
-            logger.error("Test mutation failed – empty result from LLM.")
+            print("Test mutation failed - empty result from LLM.")
         return result or ""
 
-    def _spawn_test(self) -> Tuple[Optional[int], Optional[TestCase]]:
-        """Spawn a *predicate‑shape‑preserving* test case.
+    # def _spawn_test(self) -> Tuple[Optional[int], Optional[TestCase]]:
+    #     """Spawn a *predicate-shape-preserving* test case.
 
-        The new strategy is:
-        • **Prefer mutation** of an existing test (prob = `mutation_rate`).
-        • If generating from scratch, pass *up to 5 exemplar tests* to the LLM and
-          *explicitly* instruct it to keep *exactly the same* predicate signatures &
-          arity.  This prevents the engine from introducing facts that the logic
-          vocabulary cannot recognise.
-        """
-        use_mutation = self.sm.test_cases and (self.rng.random() < self.mutation_rate)
+    #     The new strategy is:
+    #     • **Prefer mutation** of an existing test (prob = `mutation_rate`).
+    #     • If generating from scratch, pass *up to 5 exemplar tests* to the LLM and
+    #       *explicitly* instruct it to keep *exactly the same* predicate signatures &
+    #       arity.  This prevents the engine from introducing facts that the logic
+    #       vocabulary cannot recognise.
+    #     """
+    #     use_mutation = self.sm.test_cases and (self.rng.random() < self.mutation_rate)
 
-        if use_mutation:
-            parent = self.rng.choice(self.sm.test_cases)
-            raw = self._mutate_test(parent)
-        else:
-            exemplars = "\n".join(t.original_fact for t in self.sm.test_cases[:5]) if self.sm.test_cases else ""
-            guidance = (
-                """
-                You are generating a *new* logical query (test case) to challenge the 
-                current Prolog encoding of the insurance contract.  The test *must* 
-                use **exactly the same predicate names and number of arguments** as 
-                those shown below.  Think of a novel *scenario* or edge-case that the 
-                contract might cover, but keep the *shape* identical.  
-                Return a test in a similar format as the exemplars, matching the signature (arity and arguments).
-                """ # This is an example of the format you should use, but make sure to use the predicate signatures provided in the exemplar tests later: \n % Args: Name, Age, Activity \n test("Scenario description", is_claim_covered("John", 67, "skydiving")).
-            )
-            prompt = (
-                f"{TEST_GENERATION_PROMPT}\n\n{guidance}\n\n"  # base task description
-                f"# Exemplar tests (keep shape)\n{exemplars}\n\n# → New test:"
-            )
-            raw = generate_content(prompt)
-            if not raw:
-                logger.error("Test generation failed – empty result from LLM.")
-        if not raw or not raw.strip():
-            return None, None
+    #     if use_mutation:
+    #         parent = self.rng.choice(self.sm.test_cases)
+    #         raw = self._mutate_test(parent)
+    #     else:
+    #         exemplars = "\n".join(t.original_fact for t in self.sm.test_cases[:5]) if self.sm.test_cases else ""
+    #         guidance = (
+    #             """
+    #             You are generating a *new* logical query (test case) to challenge the 
+    #             current Prolog encoding of the insurance contract.  The test *must* 
+    #             use **exactly the same predicate names and number of arguments** as 
+    #             those shown below.  Think of a novel *scenario* or edge-case that the 
+    #             contract might cover, but keep the *shape* identical.  
+    #             Return a test in a similar format as the exemplars, matching the signature (arity and arguments).
+    #             """ # This is an example of the format you should use, but make sure to use the predicate signatures provided in the exemplar tests later: \n % Args: Name, Age, Activity \n test("Scenario description", is_claim_covered("John", 67, "skydiving")).
+    #         )
+    #         prompt = (
+    #             f"{TEST_GENERATION_PROMPT.format(contract_text=self.contract_text)}\n\n{guidance}\n\n"  # base task description
+    #             f"# Exemplar tests (keep shape)\n{exemplars}\n\n# → New test:"
+    #         )
+    #         raw = generate_content(prompt)
+    #         if not raw:
+    #             print("Test generation failed - empty result from LLM.")
+    #     if not raw or not raw.strip():
+    #         return None, None
 
-        tc = TestCase(raw.strip())
-        self.sm.test_cases.append(tc)
-        return len(self.sm.test_cases) - 1, tc
+    #     tc = TestCase(raw.strip())
+    #     self.sm.test_cases.append(tc)
+    #     return len(self.sm.test_cases) - 1, tc
 
     # 5) Population culling ----------------------------------------------
-    def _trim_populations(self):
-        # ---- Programs ----
+    # --------------------------------------------------------------
+    #  (helpers) population culling
+    # --------------------------------------------------------------
+    def _trim_programs(self) -> None:
+        """Keep the top-k candidate solutions by logic_fitness."""
         self.code_population.sort(key=lambda x: x["logic_fitness"], reverse=True)
-        survivors_prog_idxs = {d["idx"] for d in self.code_population[: self.pop_cap_programs]}
-        self.sm.solutions = [s for i, s in enumerate(self.sm.solutions) if i in survivors_prog_idxs]
+        keep = {d["idx"] for d in self.code_population[: self.pop_cap_programs]}
+        self.sm.solutions = [s for i, s in enumerate(self.sm.solutions) if i in keep]
 
-        # ---- Tests ----
-        selected_tests = pareto_selection(
+    
+    def _trim_tests(self) -> None:
+        """Pareto-filter the test suite by (confidence, discrimination)."""
+        selected = pareto_selection(
             self.test_population,
             self.pop_cap_tests,
             metrics=["conf", "disc"],
         )
-        survivor_test_idxs = {d["idx"] for d in selected_tests}
-        self.sm.test_cases = [t for j, t in enumerate(self.sm.test_cases) if j in survivor_test_idxs]
+        keep = {d["idx"] for d in selected}
+        self.sm.test_cases = [t for j, t in enumerate(self.sm.test_cases) if j in keep]
 
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
     def run(self):
-        """Execute co‑evolution for ``max_generations`` generations."""
-        self._ensure_vocab_alignment()   # Defensive repair for initial pop
+        """Execute co-evolution for ``max_generations`` generations."""
+        flag = False
+        while not flag:
+            if self._ensure_vocab_alignment():   # Defensive repair for initial pop
+                flag = True
+            else:
+                logger.warning("Initial population failed vocab alignment - reseeding.")
+                self._reseed_populations()
+
+        self._evaluate_logic(scope="initial")
 
         for gen in range(1, self.max_generations + 1):
             print(f"\n═══════ CoCoEvo | Generation {gen}/{self.max_generations} ═══════")
+            x = self.cosine_scheduler(gen-1, self.max_generations)  # 0-indexed
+            self.crossover_rate = x                            # update for this gen
 
-            # Evaluate & compute metrics
-            pre = f"evo_gen_{gen:04d}/pre"
-            self._evaluate_logic(scope=pre)
+            num_children = self.pop_cap_programs               # size in Algorithm 1
+            num_cross = int(num_children * self.crossover_rate)
+            num_mut   = num_children - num_cross
+
+            # Evaluate & compute metrics (PRE-spawn)
+            # pre = f"evo_gen_{gen:04d}/pre"
+            # self._evaluate_logic(scope=pre)
+
+            # # --- Emergency reseed check --------------------------------
+            # if self.code_population and all(p["logic_fitness"] == 0.0 for p in self.code_population):
+            #     self._reseed_populations()
+            #     # Re-evaluate after reseed and skip normal spawn/cull for this gen
+            #     self._evaluate_logic(scope=f"evo_gen_{gen:04d}/reseed")
+            #     continue
 
             # ---------------- Spawn ----------------
+            # -------- (Mutate and Crossover) -------
+            # new_prog_idxs: List[int] = []
+            # new_test_idxs: List[int] = []
+            # for _ in range(max(1, self.pop_cap_programs // 10)):
+            #     idx, _ = self._spawn_program()
+            #     if idx is not None:
+            #         new_prog_idxs.append(idx)
+            # for _ in range(max(1, self.pop_cap_tests // 10)):
+            #     idx, _ = self._spawn_test()
+            #     if idx is not None:
+            #         new_test_idxs.append(idx)
+
+
+            # Spawn new programs
             new_prog_idxs: List[int] = []
             new_test_idxs: List[int] = []
-            for _ in range(max(1, self.pop_cap_programs // 10)):
-                idx, _ = self._spawn_program()
+            for _ in range(num_cross):
+                # NEED TO SELECT TWO PARENTS FOR CROSSOVER
+                # USE _tournament_select() TO PICK TWO PROGRAMS
+                pa, pb = self._tournament_select(), self._tournament_select()
+                idx, _ = self._spawn_program(use_crossover=True, pa=pa, pb=pb)
                 if idx is not None:
                     new_prog_idxs.append(idx)
-            for _ in range(max(1, self.pop_cap_tests // 10)):
-                idx, _ = self._spawn_test()
+            for _ in range(num_mut):
+                pa = self._random_select()
+                idx, _ = self._spawn_program(use_crossover=False, pa=pa)
+                if idx is not None:
+                    new_prog_idxs.append(idx)
+            
+            # NOTE: not sure yet if to have vocab alignment inside evolution loop
+            #       or just rely on Stage-1 repair before the run.
+            # # Ensure vocabulary alignment for new programs 
+            # if new_prog_idxs:
+            #     print(f"• Ensuring vocab alignment for {len(new_prog_idxs)} new programs …")
+            #     if not self._ensure_vocab_alignment(new_prog_idxs):
+            #         print("❌ Vocab alignment failed for new programs - reseeding.")
+            #         self._reseed_populations()
+            #         continue # this generation is skipped
+
+
+            # Evaluate new programs (P') on T
+            # Each p' in P' gets fitness based on T (conf_P') (not test confidence)
+            # P = greedy(P ∪ P', conf_P,P') # I believe conf_P,P' is the logic_fitness of sets P (old programs) and P' (new programs)
+            #   Meaning we evaluate the new programs on the existing tests
+            #   and select the best-performing programs from both the old and new populations.
+            if new_prog_idxs:
+                print(f"• Evaluating {len(new_prog_idxs)} new programs on existing tests …")
+                self._evaluate_logic(scope=f"evo_gen_{gen:04d}/spawned_programs")
+            else:
+                print("• No new programs spawned this generation.")
+            # Cull programs based on logic fitness
+            self._trim_programs()  # This will keep the top-k programs by logic_fitness
+
+
+            # Spawn new tests
+            # 1. Get champion and its feedback
+            best_idx, best_prog = self._best_program()
+            feedback = self._program_feedback(best_idx)
+            # 2. Spawn test-offspring that specifically target Pbest
+            num_new_tests = max(1, self.pop_cap_tests // 10)
+            for _ in range(num_new_tests):
+                idx = self._spawn_test_feedback(feedback)
                 if idx is not None:
                     new_test_idxs.append(idx)
+            
+            # NOTE: not sure yet if to have vocab alignment inside evolution loop
+            #       or just rely on Stage-1 repair before the run.
+            # # Ensure vocabulary alignment for new tests
+            # if new_test_idxs:
+            #     print(f"• Ensuring vocab alignment for {len(new_test_idxs)} new tests …")
+            #     if not self._ensure_vocab_alignment(new_test_idxs):
+            #         print("❌ Vocab alignment failed for new tests - reseeding.")
+            #         self._reseed_populations()
+            #         continue  # this generation is skipped
 
-            # Vocabulary repair for newcomers
-            if new_prog_idxs or new_test_idxs:
-                print(f"• Vocab repair for {len(new_prog_idxs)} programs / {len(new_test_idxs)} tests …")
-                self._ensure_vocab_alignment(new_prog_idxs, new_test_idxs)
+            # NOTE: legacy code for vocab repair - not used in the current flow
+            # # Vocabulary repair for newcomers
+            # if new_prog_idxs or new_test_idxs:
+            #     print(f"• Vocab repair for {len(new_prog_idxs)} programs / {len(new_test_idxs)} tests …")
+            #     if (self._ensure_vocab_alignment(new_prog_idxs, new_test_idxs)):
+            #         print("  ✅ Vocab alignment successful.")
+            #     else:
+            #         print("  ❌ Vocab alignment failed.")
+            #         # Emergency reseed if vocab repair fails?
+            #         self._reseed_populations()
+            #         continue  # this generation is skipped
 
-            # Re‑evaluate after repairs & cull
+            # After new test generation;
             post = f"evo_gen_{gen:04d}/post"
+            # T = T ∪ T' 
+            # Evaluate P on T ∪ T' (i.e. re-evaluate all programs on all tests)
+            # Calculate conf_T, discrimination disc_T
+            # T = Pareto_selection(T, pop_cap_tests, metrics=['conf', 'disc'])
+            print("• Evaluating all programs on all tests (including new ones) …")
             self._evaluate_logic(scope=post)
-            self._trim_populations()
+            # Cull tests based on Pareto selection
+            self._trim_tests()  # This will keep the top-k tests by (conf, disc)
 
         print("✅ CoCoEvo run completed.")
