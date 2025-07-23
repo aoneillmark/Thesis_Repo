@@ -94,16 +94,19 @@ class SuiteManager:
         """
         print(f"\n--- 🧪 Generating {num_cases} Test Cases ---")
 
-        if existing_tests:
-            ref_snips = "\n".join(t.original_fact for t in existing_tests)
-            ref_block = REFERENCE_BLOCK.format(existing_tests=ref_snips)
-        else:
-            ref_block = ""
+        # if existing_tests:
+        #     ref_snips = "\n".join(t.original_fact for t in existing_tests)
+        #     ref_block = REFERENCE_BLOCK.format(existing_tests=ref_snips)
+        # else:
+        #     ref_block = ""
 
         prompt = TEST_SUITE_GENERATION_PROMPT.format(
             contract_text=contract_text,
-            ref_block=ref_block,
         )
+        prompt.join(
+            "\n Ensure to generate only {num_cases} test cases, each with a unique goal.".format(num_cases=num_cases)
+        )
+
         raw_output = generate_content(prompt)
 
         if not raw_output:
