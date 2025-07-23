@@ -38,7 +38,7 @@ PROLOG_GENERATION_PROMPT = """
 
 
 TEST_SUITE_GENERATION_PROMPT = """
-You are given the text of an insurance contract{ref_block}.
+You are given the text of an insurance contract.
 Your task is to generate a set of Prolog test cases that query a hypothetical Prolog encoding of this contract to determine whether or not certain scenarios are covered by the policy.
 
 Insurance contract:
@@ -51,7 +51,7 @@ Instructions:
    with `%`) that concisely explains what each argument of the query means.**
    Example:
      % Args: Name, DateOfBirth, Gender
-     test("basic_cover", is_mcdonalds_customer("Johnny Appleseed", 01011973, Male)).
+     test("basic_cover", is_mcdonalds_customer('Johnny Appleseed', 01011973, Male)).
 2. Each test case must be a valid Prolog fact, and must include a string label as the first argument and a valid Prolog *query* as the second — NOT a rule or clause. Do NOT include the `:-` operator in any test.
 3. Each test case should target a different aspect of the policy — e.g., coverage conditions, exclusions, age requirements, timing, etc.
 4. DO NOT include any explanation or text. Only output Prolog code.
@@ -128,7 +128,7 @@ Instructions:
    with `%`) that concisely explains what each argument of the query means.**
    Example:
      % Args: Name, DateOfBirth, Gender
-     test("basic_cover", is_mcdonalds_customer("Johnny Appleseed", 01011973, Male)).
+     test("basic_cover", is_mcdonalds_customer('Johnny Appleseed', 01011973, Male)).
 2. The test case must be a valid Prolog fact, and must include a string label as the first argument and a valid Prolog *query* as the second — NOT a rule or clause. Do NOT include the `:-` operator in the test.
 3. The test case should target a specific aspect of the policy — e.g., coverage conditions, exclusions, age requirements, timing, etc.
 4. DO NOT include any explanation or text. Only output Prolog code.
@@ -143,6 +143,20 @@ Instructions:
 13. DO NOT define new predicates, rules, or clauses inside the test case. Only use an executable query that can be run in isolation.
 14. Ensure your test uses consistent predicate names and arities with is_claim_covered/x.
 15. Do NOT use keyword-style arguments like key=value. Prolog does not support this syntax. DO NOT use this style in your query.
+
+We have a number of test cases that have already been run against the Prolog code, some of which have passed and some of which have failed.
+Your task is to generate a new test case that is consistent with the existing tests (function signature and arity), but which explores a different scenario.
+Identify potential problems or edge cases in the program. Focus on gaps in logic or unusual scenarios. It's best if you can think of a unique scenario that has not been tested before, which is consistent with the rules of the contract text.
+
+Here's the best program so far:
+{program}
+
+Here are the tests that the best program has failed:
+{failing}
+
+Here are the tests that the best program has passed:
+{passing}
+
 """
 
 
