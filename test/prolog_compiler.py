@@ -29,7 +29,7 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
             f.write(prolog_code.strip() + "\n\n")
             f.write(":- initialization(main).\n")
             f.write("main :-\n")
-            f.write(f"    (catch(({goal} -> writeln('__PASS__'); writeln('__FAIL__')), "
+            f.write(f"    (catch(({goal.rstrip('.')} -> writeln('__PASS__'); writeln('__FAIL__')), "
                     "Error, (print_message(error, Error), writeln('__ERROR__')))),\n")
             f.write("    halt.\n")
 
