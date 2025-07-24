@@ -43,7 +43,7 @@ class Evaluator:
         #                                 tc.original_fact)
         for sol in solutions:
             if sol.canonical_program is None:
-                sol.canonical_program = sol.original_program
+                sol.canonical_program = sol.original_program # NOTE: could be breaking things
         for tc in test_cases:
             if tc.canonical_fact is None:
                 tc.canonical_fact = tc.original_fact
@@ -179,7 +179,7 @@ class Evaluator:
         if not reason:
             return False
         return any(substr in reason for substr in (
-            "Unknown procedure", "Undefined procedure", "ERROR:", "Syntax error",
+            "Unknown procedure", "Undefined procedure", "Syntax error",
         ))
 
     @staticmethod
