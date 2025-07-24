@@ -63,16 +63,15 @@ logger = logging.getLogger(__name__)
 
 def calculate_test_conf(test_idx: int,
                         code_population: List[Dict],
-                        matrix: List[List[int]]) -> float:
-    """Weighted confidence of *test* ``test_idx`` using program *logic_fitness*.
-
-    The weight of each program is its ``logic_fitness``; tests passed by
-    stronger programs contribute more to the confidence score.
-    """
+                        matrix: List[List[int]],
+                        solutions: List[CandidateSolution]) -> float:
     passed = 0.0
     total = 0.0
     for c in code_population:
-        p_idx = int(c["idx"])
+        try:
+            p_idx = solutions.index(c["solution"])
+        except ValueError:
+            continue
         fitness = c["logic_fitness"]
         if matrix[p_idx][test_idx]:
             passed += fitness
@@ -80,11 +79,19 @@ def calculate_test_conf(test_idx: int,
     return 0.0 if total == 0.0 else passed / total
 
 
+
 def calculate_test_disc(test_idx: int,
                         code_population: List[Dict],
-                        matrix: List[List[int]]) -> float:
-    """Binary entropy over pass/fail distribution - higher ⇒ more discriminative."""
-    passed = sum(1 for c in code_population if matrix[int(c["idx"])][test_idx])
+                        matrix: List[List[int]],
+                        solutions: List[CandidateSolution]) -> float:
+    passed = 0
+    for c in code_population:
+        try:
+            p_idx = solutions.index(c["solution"])
+        except ValueError:
+            continue
+        if matrix[p_idx][test_idx]:
+            passed += 1
     total = len(code_population)
     p = 0.0 if total == 0 else passed / total
     if p in (0.0, 1.0):
@@ -201,12 +208,13 @@ class CoCoEvoEngine:
         #     self._spawn_program()
         # for _ in range(self.pop_cap_tests):
         #     self._spawn_test()
-        self.sm.generate_solutions(
-            num_solutions=self.pop_cap_programs,
-            contract_text=self.contract_text,
-        )
         self.sm.test_cases = self.sm.generate_test_cases(
             num_cases=self.pop_cap_tests,
+            contract_text=self.contract_text,
+        )
+        
+        self.sm.generate_solutions(
+            num_solutions=self.pop_cap_programs,
             contract_text=self.contract_text,
         )
 
@@ -231,7 +239,8 @@ class CoCoEvoEngine:
     # --------------------------------------------------------------
     def _best_program(self) -> Tuple[int, CandidateSolution]:
         best = max(self.code_population, key=lambda x: x["logic_fitness"])
-        return best["idx"], self.sm.solutions[best["idx"]]
+        return self.sm.solutions.index(best["solution"]), best["solution"]
+
 
     # --------------------------------------------------------------
     # (B) Helper: run Pbest on all tests and build feedback object
@@ -277,20 +286,31 @@ class CoCoEvoEngine:
 
         # Program logic fitness = proportion of tests passed
         self.code_population = []
-        for idx, row in enumerate(self.logic_matrix):
+        # for idx, row in enumerate(self.logic_matrix):
+        #     passed = sum(row)
+        #     total = len(row) if row else 1
+        #     logic_fitness = passed / total
+        #     self.code_population.append({
+        #         "idx": idx,
+        #         "logic_fitness": logic_fitness,
+        #     })
+        for new_idx, (old_idx, _) in enumerate(valid_pairs):
+            row = self.logic_matrix[new_idx]
             passed = sum(row)
             total = len(row) if row else 1
             logic_fitness = passed / total
             self.code_population.append({
-                "idx": idx,
+                "solution": self.sm.solutions[new_idx],
                 "logic_fitness": logic_fitness,
             })
+
+
 
         # Test metrics
         self.test_population = []
         for j in range(len(self.sm.test_cases)):
-            conf = calculate_test_conf(j, self.code_population, self.logic_matrix)
-            disc = calculate_test_disc(j, self.code_population, self.logic_matrix)
+            conf = calculate_test_conf(j, self.code_population, self.logic_matrix, self.sm.solutions)
+            disc = calculate_test_disc(j, self.code_population, self.logic_matrix, self.sm.solutions)
             fitness = 0.5 * conf + 0.5 * disc
             self.test_population.append({
                 "idx": j,
@@ -302,8 +322,9 @@ class CoCoEvoEngine:
     # 3) Selection helpers -----------------------------------------------
     def _tournament_select(self, k: int = 2) -> CandidateSolution:
         contenders = self.rng.sample(self.code_population, k)
-        winner_idx = max(contenders, key=lambda x: x["logic_fitness"])["idx"]
-        return self.sm.solutions[winner_idx]
+        winner = max(contenders, key=lambda x: x["logic_fitness"])
+        return winner["solution"]
+
     
     def _random_select(self) -> CandidateSolution:
         """Select a random solution from the population."""
@@ -408,10 +429,10 @@ class CoCoEvoEngine:
     #  (helpers) population culling
     # --------------------------------------------------------------
     def _trim_programs(self) -> None:
-        """Keep the top-k candidate solutions by logic_fitness."""
         self.code_population.sort(key=lambda x: x["logic_fitness"], reverse=True)
-        keep = {d["idx"] for d in self.code_population[: self.pop_cap_programs]}
-        self.sm.solutions = [s for i, s in enumerate(self.sm.solutions) if i in keep]
+        keep_solutions = {d["solution"] for d in self.code_population[:self.pop_cap_programs]}
+        self.sm.solutions = [s for s in self.sm.solutions if s in keep_solutions]
+
 
     
     def _trim_tests(self) -> None:
@@ -519,7 +540,7 @@ class CoCoEvoEngine:
             best_idx, best_prog = self._best_program()
             feedback = self._program_feedback(best_idx)
             # 2. Spawn test-offspring that specifically target Pbest
-            num_new_tests = max(1, self.pop_cap_tests // 10)
+            num_new_tests = max(1, self.pop_cap_tests // 10) 
             for _ in range(num_new_tests):
                 idx = self._spawn_test_feedback(feedback)
                 if idx is not None:
