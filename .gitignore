@@ -10,3 +10,4 @@ test/__pycache__/*.pyc
 test/.test_logs/*
 test/temp_files/*
 test/repair_prompts/*
+test/tests/temp_files/*
