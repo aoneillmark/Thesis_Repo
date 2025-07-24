@@ -7,3 +7,6 @@ test/__pycache__/*
 test/__pycache__/*
 test/__pycache__/*.pyc
 **/__pycache__/
+test/.test_logs/*
+test/temp_files/*
+test/repair_prompts/*
