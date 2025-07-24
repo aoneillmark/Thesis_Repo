@@ -161,7 +161,7 @@ class SuiteManager:
             print(f"\n--- Rank #{i+1} | Solution {sol.id} | logic_fitness: {sol.logic_fitness:.2f} --- vocab_fitness: {sol.vocab_fitness:.2f} ---")
 
         
-        summary_path = os.path.join(self.log_dir, "summary.txt")
+        summary_path = self.logm.run_dir / "summary.txt"
         with open(summary_path, "w", encoding="utf-8") as f:
             for i, sol in enumerate(sorted(self.solutions, key=lambda x: x.logic_fitness, reverse=True)):
                 f.write(f"Rank #{i+1} | Solution {sol.id} | logic_fitness: {sol.logic_fitness:.2f} --- vocab_fitness: {sol.vocab_fitness:.2f}\n")
