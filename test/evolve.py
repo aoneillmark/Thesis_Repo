@@ -84,6 +84,7 @@ def select_refactor_target(
     # ---------- if everything is blocked ----------
     if not candidates:
         # fall back to original catastrophe alternation
+        print("⚠️  All candidates exhausted, falling back to catastrophe alternation.")
         target = _catastrophe[0]
         _catastrophe.rotate(-1)
         idx = random.randrange(len(prog_rates if target == "program" else test_rates))
@@ -116,7 +117,21 @@ def select_refactor_target(
 
 def repair_program(suite_manager, p_idx, failing_tests):
     sol = suite_manager.solutions[p_idx]
-    failing_snips = "\n".join(t.original_fact for t in failing_tests)
+
+    # failing_snips = "\n".join(t.original_fact for t in failing_tests)
+
+    # Grab the concrete error text for each failing test
+    err_msgs = [
+        suite_manager.evaluator.errors_matrix[p_idx][j]
+        for j, _ in enumerate(suite_manager.test_cases)
+        if suite_manager.evaluator.vocab_matrix[p_idx][j] == 0
+    ]
+
+    failing_snips = "\n".join(
+        f"{tc.original_fact}\n% error: {err}"
+        for tc, err in zip(failing_tests, err_msgs)
+    )
+
     prompt = f"""
     You are fixing ONE Prolog program so that its predicate names & arities
     match the tests shown below (keep the underlying logic).
@@ -129,6 +144,12 @@ def repair_program(suite_manager, p_idx, failing_tests):
 
     Produce ONLY the corrected program.
     """
+
+    # Save this to repair_prompts/prompt_{p_idx:03d}.txt
+    os.makedirs("repair_prompts", exist_ok=True)
+    with open(f"repair_prompts/prompt_{p_idx:03d}.txt", "w", encoding="utf-8") as f:
+        f.write(prompt.strip())
+
     updated = generate_content(prompt)
     if updated:
         sol.original_program = updated.strip()
@@ -342,7 +363,7 @@ def run_vocab_alignment(
 
     """
     Continually evaluate and repair until all programs & tests reach the
-    GOOD_THRESHOLD pass‑rate or we hit max_iters.
+    GOOD_THRESHOLD pass-rate or we hit max_iters.
     """
     repair_attempts = defaultdict(int)  # key = ("program"|"test", idx)
     last_fixed_iter = {}
