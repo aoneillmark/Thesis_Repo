@@ -21,8 +21,11 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
     if not prolog_code or not goal:
         return False, "Missing code or goal"
 
-    temp_file = f"temp_prog_{uuid.uuid4().hex[:8]}.pl"
-    keep_file = False 
+    temp_dir = "temp_files"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    temp_file = os.path.join(temp_dir, f"temp_prog_{uuid.uuid4().hex[:8]}.pl")
+    keep_file = True
 
     try:
         with open(temp_file, "w", encoding="utf-8") as f:
@@ -56,6 +59,9 @@ def consult(prolog_code: str, goal: str, timeout: int = 5):
 
         stdout = result.stdout.strip()
         stderr = result.stderr.strip()
+
+        # print("DEBUG:", goal, "STDERR:", stderr, "STDOUT:", stdout)
+
 
         if '__PASS__' in stdout:
             return True, None
