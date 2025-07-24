@@ -15,11 +15,21 @@ if __name__ == "__main__":
     sm = SuiteManager()
     sm.test_cases = sm.generate_test_cases(num_cases=6, contract_text=contract_text)
 
+    # sol_prompts = [
+    #     (lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct))
+    #     for _ in range(4)
+    # ]
+
+    # Make prompts for candidate solutions, with PROLOG_GENERATION_PROMPT, and .join(super_secret_prompt)
+    super_secret_prompt = "\n\nAdditionally, here are the test cases you will be tested on; make sure to match the predicate signature and arity. {test_cases}"
+    
     sol_prompts = [
-        (lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct))
+        (lambda ct, p=PROLOG_GENERATION_PROMPT, secret=super_secret_prompt: 
+         p.format(contract_text=ct) + secret.format(
+             test_cases="\n".join(tc.original_fact for tc in sm.test_cases)))
         for _ in range(4)
     ]
-    
+
     sm.generate_solutions(num_solutions=4,
                           contract_text=contract_text,
                           prompt_fns=sol_prompts)
