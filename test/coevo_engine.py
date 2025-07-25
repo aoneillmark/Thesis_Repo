@@ -45,6 +45,7 @@ from prompts import (
     PROGRAM_MUTATION_PROMPT,
     TEST_MUTATION_PROMPT,
     TEST_GENERATION_PROMPT,
+    PROLOG_GENERATION_PROMPT,
 )
 
 # ---------------------------------------------------------------------------
@@ -213,9 +214,24 @@ class CoCoEvoEngine:
             contract_text=self.contract_text,
         )
         
+        # self.sm.generate_solutions(
+        #     num_solutions=self.pop_cap_programs,
+        #     contract_text=self.contract_text,
+        # )
+
+        super_secret_prompt = "\n\nAdditionally, here are the test cases you will be tested on; make sure to match the predicate signature and arity. {test_cases}"
+
+        sol_prompts = [
+            (lambda ct, p=PROLOG_GENERATION_PROMPT, secret=super_secret_prompt: 
+            p.format(contract_text=ct) + secret.format(
+                test_cases="\n".join(tc.original_fact for tc in self.sm.test_cases)))
+            for _ in range(self.pop_cap_programs)
+        ]
+
         self.sm.generate_solutions(
             num_solutions=self.pop_cap_programs,
             contract_text=self.contract_text,
+            prompt_fns=sol_prompts
         )
 
         # One final vocab alignment pass for the brand-new population
