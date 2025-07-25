@@ -11,3 +11,5 @@ test/.test_logs/*
 test/temp_files/*
 test/repair_prompts/*
 test/tests/temp_files/*
+test/benchmark_claim/*
+test/benchmark_policy/*

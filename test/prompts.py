@@ -1,7 +1,7 @@
 # --- Text Content ---
 # This is from file `insurance_contract.txt`
-with open("insurance_contract.txt", "r", encoding='utf-8') as file:
-    text_content = file.read()
+# with open("insurance_contract.txt", "r", encoding='utf-8') as file:
+#     text_content = file.read()
 
 # # --- Unguided Prolog Generation ---
 # with open("unguided_prolog_generation.txt", "r", encoding='utf-8') as file:
