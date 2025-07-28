@@ -13,3 +13,6 @@ test/repair_prompts/*
 test/tests/temp_files/*
 test/benchmark_claim/*
 test/benchmark_policy/*
+test/benchmark_policy_2/*
+test/benchmark_claim_copy/*
+test/logs_copy/*

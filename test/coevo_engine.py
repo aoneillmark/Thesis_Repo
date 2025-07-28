@@ -45,6 +45,7 @@ from prompts import (
     PROGRAM_MUTATION_PROMPT,
     TEST_MUTATION_PROMPT,
     TEST_GENERATION_PROMPT,
+    PROLOG_GENERATION_PROMPT
 )
 
 # ---------------------------------------------------------------------------
@@ -208,9 +209,20 @@ class CoCoEvoEngine:
         #     self._spawn_program()
         # for _ in range(self.pop_cap_tests):
         #     self._spawn_test()
-        self.sm.test_cases = self.sm.generate_test_cases(
-            num_cases=self.pop_cap_tests,
+        
+        super_secret_prompt = "\n\nAdditionally, here are the test cases you will be tested on; make sure to match the predicate signature and arity. {test_cases}"
+
+        sol_prompts = [
+            (lambda ct, p=PROLOG_GENERATION_PROMPT, secret=super_secret_prompt: 
+            p.format(contract_text=ct) + secret.format(
+                test_cases="\n".join(tc.original_fact for tc in self.sm.test_cases)))
+            for _ in range(self.pop_cap_programs)
+        ]
+
+        self.sm.generate_solutions(
+            num_solutions=self.pop_cap_programs,
             contract_text=self.contract_text,
+            prompt_fns=sol_prompts
         )
         
         self.sm.generate_solutions(
@@ -451,12 +463,17 @@ class CoCoEvoEngine:
     def run(self):
         """Execute co-evolution for ``max_generations`` generations."""
         flag = False
-        while not flag:
+        TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT = 5
+        while not flag and TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT > 0:
             if self._ensure_vocab_alignment():   # Defensive repair for initial pop
                 flag = True
-            else:
+            elif TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT > 0:
                 logger.warning("Initial population failed vocab alignment - reseeding.")
+                TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT -= 1
                 self._reseed_populations()
+            else:
+                logger.error("Exhausted vocab repair attempts - cannot proceed.")
+                raise RuntimeError("Vocab alignment failed after multiple attempts.")
 
         self._evaluate_logic(scope="initial")
 
@@ -580,3 +597,4 @@ class CoCoEvoEngine:
             self._trim_tests()  # This will keep the top-k tests by (conf, disc)
 
         print("✅ CoCoEvo run completed.")
+

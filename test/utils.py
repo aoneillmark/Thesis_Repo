@@ -65,7 +65,8 @@ except KeyError:
     exit()
 
 model = genai.GenerativeModel('models/gemini-2.5-flash-lite-preview-06-17') # RPM: 15, TPM: 250,000, RPD: 1,000
-
+# model = genai.GenerativeModel('gemini-2.5-flash-lite')
+# model = genai.GenerativeModel('gemini-2.5-flash')
 # ---------------------------------------------------------------------------
 # internal
 # ---------------------------------------------------------------------------
@@ -89,10 +90,16 @@ def generate_content(prompt, *, is_json=False,
     delay = init_delay
     for attempt in range(1, max_retries + 1):
         try:
-            resp = model.generate_content(prompt)
-            if not resp or not resp.text:
-                print("❌  Empty LLM response")
-                return None
+            resp = model.generate_content(
+                prompt
+            )
+            # if not resp or not resp.text:
+            #     print("❌  Empty LLM response")
+            #     return None
+
+            if (not resp) or (not resp.text.strip()):
+                raise gexp.DeadlineExceeded("empty-text")  # reuse an existing retryable type
+            
             text = resp.text.strip()
             if "```" in text:
                 lang = "json" if is_json else "prolog"

@@ -21,7 +21,7 @@ def compute_pass_rates(pass_matrix):
     """
     Given a 0/1 *pass* matrix return per-program and per-test pass-rates.
     """
-    if not pass_matrix:
+    if (not pass_matrix) or (not pass_matrix[0]):
         return [], []
 
     n_prog = len(pass_matrix)
@@ -32,6 +32,16 @@ def compute_pass_rates(pass_matrix):
         sum(pass_matrix[i][j] for i in range(n_prog)) / n_prog
         for j in range(n_test)
     ]
+
+    # Example:
+    #   pass_matrix = [
+    #       [1, 0, 1],
+    #       [1, 1, 0],
+    #       [0, 1, 1],
+    #   ]
+    #   prog_rates = [2/3, 2/3, 2/3]  # each program passes 2 out of 3 tests
+    #   test_rates = [2/3, 2/3, 2/3]  # each test is passed by 2 out of 3 programs
+    #   columns are tests, rows are programs
     return prog_rates, test_rates
 
 

@@ -224,8 +224,8 @@ TASK
 # † Variables injected: {contract_text}, {program}
 PROGRAM_MUTATION_PROMPT = """
 You are improving a Prolog encoding of the insurance contract shown below.
-Make *minimal, surgical* edits that fix bugs, add missing edge-cases, or
-simplify logic, while preserving the external interface.
+Make edits that fix bugs, add missing edge-cases, or
+simplify logic, while preserving the external interface (preserve is_claim_covered/N).
 
 ================  CONTEXT  ================
 --- INSURANCE CONTRACT (excerpt) ---
