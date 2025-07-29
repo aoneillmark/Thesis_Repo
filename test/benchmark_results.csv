@@ -1,0 +1,7 @@
+policy,claim,baseline_status,evolved_status,delta
+policy_0,0,PASS,PASS,Same
+policy_1,1,PASS,PASS,Same
+policy_2,2,PASS,FAIL,Changed
+policy_3,3,PASS,PASS,Same
+policy_4,4,PASS,FAIL,Changed
+policy_5,5,ERROR,PASS,Improved

@@ -479,12 +479,16 @@ class CoCoEvoEngine:
 
         for gen in range(1, self.max_generations + 1):
             print(f"\n═══════ CoCoEvo | Generation {gen}/{self.max_generations} ═══════")
+
+            # --- Calculate crossover rate for this generation ---
             x = self.cosine_scheduler(gen-1, self.max_generations)  # 0-indexed
             self.crossover_rate = x                            # update for this gen
 
             num_children = self.pop_cap_programs               # size in Algorithm 1
             num_cross = int(num_children * self.crossover_rate)
             num_mut   = num_children - num_cross
+            # ----------------------------------------------------
+
 
             # Evaluate & compute metrics (PRE-spawn)
             # pre = f"evo_gen_{gen:04d}/pre"
