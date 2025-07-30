@@ -165,18 +165,14 @@ class CoCoEvoEngine:
                  max_generations: int = 50,
                  pop_cap_programs: int = 30,
                  pop_cap_tests: int = 30,
-                 crossover_rate: float = 0.6,
-                 mutation_rate: float = 0.3,
-                 vocab_repair_iters: int = 5,
+                 max_reseed_attempts: int = 5,
                  rng_seed: Optional[int] = None):
         self.sm = suite_manager
         self.contract_text = contract_text
         self.max_generations = max_generations
         self.pop_cap_programs = pop_cap_programs
         self.pop_cap_tests = pop_cap_tests
-        self.crossover_rate = crossover_rate
-        self.mutation_rate = mutation_rate
-        self.vocab_repair_iters = vocab_repair_iters
+        self.max_reseed_attempts = max_reseed_attempts
         self.rng = random.Random(rng_seed)
 
         # Caches - re-computed each generation
@@ -193,7 +189,7 @@ class CoCoEvoEngine:
                                 new_prog_idxs: List[int] | None = None,
                                 new_test_idxs: List[int] | None = None) -> None:
         """Run Stage-1 repair on newly spawned individuals **only**."""
-        return run_vocab_alignment(self.sm, max_iters=self.vocab_repair_iters)
+        return run_vocab_alignment(self.sm, max_iters=self.max_reseed_attempts)
 
     # 1-b) Emergency reseed ---------------------------------------------
     def _reseed_populations(self):
@@ -460,16 +456,15 @@ class CoCoEvoEngine:
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
-    def run(self):
+    def run(self) -> None:
         """Execute co-evolution for ``max_generations`` generations."""
         flag = False
-        TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT = 5
-        while not flag and TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT > 0:
+        while not flag and self.max_reseed_attempts > 0:
             if self._ensure_vocab_alignment():   # Defensive repair for initial pop
                 flag = True
-            elif TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT > 0:
+            elif self.max_reseed_attempts > 0:
                 logger.warning("Initial population failed vocab alignment - reseeding.")
-                TELL_ME_TO_CHANGE_THIS_SUPER_IMPORTANT -= 1
+                self.max_reseed_attempts -= 1
                 self._reseed_populations()
             else:
                 logger.error("Exhausted vocab repair attempts - cannot proceed.")
@@ -521,7 +516,7 @@ class CoCoEvoEngine:
             for _ in range(num_cross):
                 # NEED TO SELECT TWO PARENTS FOR CROSSOVER
                 # USE _tournament_select() TO PICK TWO PROGRAMS
-                pa, pb = self._tournament_select(), self._tournament_select()
+                pa, pb = self._tournament_select(), self._tournament_select() # NOTE: Should have a checker to ensure pa != pb
                 idx, _ = self._spawn_program(use_crossover=True, pa=pa, pb=pb)
                 if idx is not None:
                     new_prog_idxs.append(idx)

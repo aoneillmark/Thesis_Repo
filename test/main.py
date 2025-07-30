@@ -43,7 +43,10 @@ if __name__ == "__main__":
                            contract_text,
                            max_generations=10,     # tweak as desired
                            pop_cap_programs=10,
-                           pop_cap_tests=10)
+                           pop_cap_tests=10,
+                           max_reseed_attempts=5  # number of reseeds if initial pop fails vocab alignment
+                           )
+                           
     engine.run()
 
     # (Optional) dump a summary
