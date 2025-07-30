@@ -10,9 +10,10 @@ Evo-Logic-LM/__pycache__/*.pyc
 Evo-Logic-LM/.test_logs/*
 Evo-Logic-LM/temp_files/*
 Evo-Logic-LM/repair_prompts/*
-Evo-Logic-LM/test/temp_files/*
+Evo-Logic-LM/tests/temp_files/*
 Evo-Logic-LM/benchmark_claim/*
 Evo-Logic-LM/benchmark_policy/*
 Evo-Logic-LM/benchmark_policy_2/*
 Evo-Logic-LM/benchmark_claim_copy/*
 Evo-Logic-LM/logs_copy/*
+Evo-Logic-LM/tests/*.pl
