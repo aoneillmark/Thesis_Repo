@@ -5,7 +5,8 @@ from collections import deque, defaultdict
 
 from suite_manager import SuiteManager
 from utils import generate_content
-from prompts import PROLOG_GENERATION_PROMPT, TEST_REPAIR_PROMPT
+from prompts import PROLOG_GENERATION_PROMPT, TEST_REPAIR_PROMPT, SYNTAX_REPAIR_PROMPT
+from prolog_compiler import consult 
 
 # ────────────────────────────────────────────────────────────────────────────
 # Configurable thresholds (spec-driven)
@@ -137,6 +138,8 @@ def repair_program(suite_manager, p_idx, failing_tests):
         if suite_manager.evaluator.vocab_matrix[p_idx][j] == 0
     ]
 
+    # failing_snips is a list of strings, each containing the original fact
+    # and the error message for that fact.
     failing_snips = "\n".join(
         f"{tc.original_fact}\n% error: {err}"
         for tc, err in zip(failing_tests, err_msgs)
@@ -176,6 +179,43 @@ def repair_test(suite_manager, t_idx, failing_progs):
     if updated:
         tc.original_fact = updated.strip()
 
+
+def attempt_syntax_repair(solution, *, max_attempts: int = 2, verbose: bool = True) -> bool:
+    """
+    Try to make `solution.original_program` *compile* (i.e. `consult/2` succeeds
+    on the dummy goal `true`).  We only intervene for **syntax errors**; all
+    other issues are left to the existing vocabulary/logic repair loop.
+
+    Returns
+    -------
+    bool
+        True  → program now loads successfully  
+        False → still broken *or* the failure was not syntactic
+    """
+    for attempt in range(1, max_attempts + 1):
+        ok, reason = consult(solution.original_program, "true")   # compile‑only check
+        if ok:
+            return True                      # ✅ already (or now) compiles
+
+        if reason is None or "Syntax error" not in reason:
+            return False                     # not a syntax problem → bail early
+
+        if verbose:
+            print(f"🩹  Syntax repair attempt {attempt}/{max_attempts} "
+                  f"for {solution.id}")
+
+        prompt  = SYNTAX_REPAIR_PROMPT.format(program=solution.original_program,
+                                              error=reason.strip())
+        patched = generate_content(prompt)
+        if not patched:                      # LLM returned nothing – try again
+            if verbose:
+                print("   ⚠️  LLM produced empty output.")
+            continue
+
+        solution.original_program = patched.strip()
+
+    # One final compile check after the loop
+    return consult(solution.original_program, "true")[0]
 
 # ────────────────────────────────────────────────────────────────────────────
 # New helpers & driver for post-Stage-1 processing

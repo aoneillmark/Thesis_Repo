@@ -268,3 +268,19 @@ GUIDELINES
 4. Return *only* Prolog code - comment line + test fact - nothing else.
 5. Ideally keep the same arity as the original test, i.e., same number of arguments in is_claim_covered.
 """
+
+
+
+# ----------- SYNTAX REPAIR PROMPT -----------
+SYNTAX_REPAIR_PROMPT = """
+You are fixing ONE Prolog program that **fails to compile** because of the
+syntax error shown below.  Keep predicate names/arity unchanged unless the
+error itself demands it.  Return **only** the corrected Prolog source – no
+explanations, no markdown fencing.
+
+----- ORIGINAL PROGRAM -----
+{program}
+
+----- SWI-Prolog SYNTAX ERROR -----
+{error}
+"""
