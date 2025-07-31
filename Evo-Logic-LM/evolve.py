@@ -5,7 +5,7 @@ from collections import deque, defaultdict
 
 from suite_manager import SuiteManager
 from utils import generate_content
-from prompts import PROLOG_GENERATION_PROMPT, TEST_REPAIR_PROMPT, SYNTAX_REPAIR_PROMPT
+from prompts import PROGRAM_SYNTAX_REPAIR_PROMPT, TEST_SYNTAX_REPAIR_PROMPT, Z3_CANDIDATE_SOLUTION_PROMPT
 from prolog_compiler import consult 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -126,96 +126,110 @@ def select_refactor_target(
 # Repair helpers
 # ────────────────────────────────────────────────────────────────────────────
 
-def repair_program(suite_manager, p_idx, failing_tests):
-    sol = suite_manager.solutions[p_idx]
+def repair_program(sm: SuiteManager, p_idx: int, failing_tests):
+    """
+    Attempt to repair ONE broken candidate program using syntax feedback from its failing test cases.
 
-    # failing_snips = "\n".join(t.original_fact for t in failing_tests)
+    Constructs a prompt for the LLM using:
+      - The candidate program’s canonical form.
+      - A list of test cases that failed due to shared syntax errors.
+        For each such test case:
+          • Includes its original_block (full test context).
+          • Includes ONLY syntax errors that are also present in the program.
 
-    # Grab the concrete error text for each failing test
-    err_msgs = [
-        suite_manager.evaluator.errors_matrix[p_idx][j]
-        for j, _ in enumerate(suite_manager.test_cases)
-        if suite_manager.evaluator.vocab_matrix[p_idx][j] == 0
-    ]
+    The LLM is instructed to produce a corrected version of the candidate program.
 
-    # failing_snips is a list of strings, each containing the original fact
-    # and the error message for that fact.
+    Parameters:
+        sm (SuiteManager): The current suite manager containing solutions and test cases.
+        p_idx (int): Index of the candidate program to repair.
+        failing_tests (list): List of TestCase objects that failed against this program.
+    """
+    sol = sm.solutions[p_idx]
+
+    # Collect syntax errors common to both this solution and its failing test cases
+    err_msgs = sol.syntax_errors
+
+    # failing_snips = "\n".join(
+    #     f"{tc.original_block}\n% syntax error: {err}"
+    #     for tc in failing_tests
+    #     for err in tc.syntax_errors
+    #     if err in err_msgs  # only shared syntax issues
+    # )
+
+    # Failing_snips without tc.original_block
     failing_snips = "\n".join(
-        f"{tc.original_fact}\n% error: {err}"
-        for tc, err in zip(failing_tests, err_msgs)
+        f"% syntax error: {err}"
+        for tc in failing_tests
+        for err in tc.syntax_errors
+        if err in err_msgs  # only shared syntax issues
     )
 
-    prompt = f"""
-    You are fixing ONE Prolog program so that its predicate names & arities
-    match the tests shown below (keep the underlying logic).
+    prompt = PROGRAM_SYNTAX_REPAIR_PROMPT.format(
+        program=sol.canonical_program,
+        errors=failing_snips if failing_snips else "none captured",
+    )
+    patched = generate_content(prompt)
+    if patched:
+        sol.original_program = patched.strip()
 
-    ----- PROGRAM -----
-    {sol.original_program}
 
-    ----- FAILING TESTS -----
-    {failing_snips}
-
-    Produce ONLY the corrected program.
+def repair_test(sm: SuiteManager, t_idx: int, failing_progs):
     """
+    Attempt to repair ONE broken test case using syntax feedback from failing programs.
 
-    # Save this to repair_prompts/prompt_{p_idx:03d}.txt
-    os.makedirs("repair_prompts", exist_ok=True)
-    with open(f"repair_prompts/prompt_{p_idx:03d}.txt", "w", encoding="utf-8") as f:
-        f.write(prompt.strip())
+    Constructs a prompt for the LLM using:
+      - The test case’s original_block (e.g., query and options).
+      - A set of failing candidate programs that share syntax errors with the test.
+        For each such program:
+          • Includes its canonical form.
+          • Includes ONLY syntax errors it shares with the test case.
+
+    If no shared errors exist, includes the first failing program and a
+    placeholder message: ‘(no matching error)’.
+
+    The LLM is instructed to produce a corrected version of the test case.
+
+    Parameters:
+        sm (SuiteManager): The current suite manager containing solutions and test cases.
+        t_idx (int): Index of the test case to repair.
+        failing_progs (list): List of CandidateSolution objects that failed against this test.
+    """
+    tc = sm.test_cases[t_idx]
+
+    # prog_snips = "\n".join(
+    #     sol.canonical_program + "\n" + "\n".join(
+    #         f"% syntax error: {err}"
+    #         for err in sol.syntax_errors
+    #         if err in tc.syntax_errors
+    #     )
+    #     for sol in failing_progs
+    #     if any(err in tc.syntax_errors for err in sol.syntax_errors)
+    # )
+
+    # Prog snips without including the sol.canonical_program
+    prog_snips = "\n".join(
+        f"% syntax error: {err}"
+        for sol in failing_progs
+        for err in sol.syntax_errors
+        if err in tc.syntax_errors
+    )
+
+    # Fallback if no programs share errors with this test
+    if not prog_snips:
+        sol = failing_progs[0]
+        prog_snips = sol.canonical_program + "\n% syntax error: (no matching error)"
+
+    prompt = TEST_SYNTAX_REPAIR_PROMPT.format(
+        prog_snips=prog_snips.strip(),
+        failing_query=tc.original_block,
+    )
+
+    print(f"Repairing test {t_idx} with prompt:\n{prompt}\n")
 
     updated = generate_content(prompt)
     if updated:
-        sol.original_program = updated.strip()
+        tc.original_block = updated.strip()
 
-
-def repair_test(suite_manager, t_idx, failing_progs):
-    tc = suite_manager.test_cases[t_idx]
-    prog_snips = "\n\n".join(p.original_program for p in failing_progs)
-    prompt = TEST_REPAIR_PROMPT.format(
-        prog_snips=prog_snips,
-        failing_query=tc.original_fact,
-    )
-    updated = generate_content(prompt)
-    if updated:
-        tc.original_fact = updated.strip()
-
-
-def attempt_syntax_repair(solution, *, max_attempts: int = 2, verbose: bool = True) -> bool:
-    """
-    Try to make `solution.original_program` *compile* (i.e. `consult/2` succeeds
-    on the dummy goal `true`).  We only intervene for **syntax errors**; all
-    other issues are left to the existing vocabulary/logic repair loop.
-
-    Returns
-    -------
-    bool
-        True  → program now loads successfully  
-        False → still broken *or* the failure was not syntactic
-    """
-    for attempt in range(1, max_attempts + 1):
-        ok, reason = consult(solution.original_program, "true")   # compile‑only check
-        if ok:
-            return True                      # ✅ already (or now) compiles
-
-        if reason is None or "Syntax error" not in reason:
-            return False                     # not a syntax problem → bail early
-
-        if verbose:
-            print(f"🩹  Syntax repair attempt {attempt}/{max_attempts} "
-                  f"for {solution.id}")
-
-        prompt  = SYNTAX_REPAIR_PROMPT.format(program=solution.original_program,
-                                              error=reason.strip())
-        patched = generate_content(prompt)
-        if not patched:                      # LLM returned nothing – try again
-            if verbose:
-                print("   ⚠️  LLM produced empty output.")
-            continue
-
-        solution.original_program = patched.strip()
-
-    # One final compile check after the loop
-    return consult(solution.original_program, "true")[0]
 
 # ────────────────────────────────────────────────────────────────────────────
 # New helpers & driver for post-Stage-1 processing
@@ -498,18 +512,69 @@ def run_logic_refinement(suite_manager):
 # CLI entry‑point
 # ────────────────────────────────────────────────────────────────────────────
 
-# if __name__ == "__main__":
-#     with open("insurance_contract.txt", encoding="utf-8") as fh:
-#         contract_text = fh.read()
+# ───────────────────────────────────────────────────────────────────────────────
+# Quick-start driver
+# ───────────────────────────────────────────────────────────────────────────────
+def main() -> None:
+    """
+    End-to-end demo:
 
-#     # e.g. want 4 vocab‑clean programs and 6 vocab‑clean tests
-#     evolve_until_dummy(
-#         contract_text,
-#         target_m=4,
-#         target_n=6,
-#         max_vocab_iters=10,
-#         reseed_batch=3,
-#         max_rounds=10,
-#         GOOD_THRESHOLD=0.8,
-#         BAD_THRESHOLD=0.0,
-#     )
+      1. Generate `n_tests` multiple-choice test cases for the supplied `problem_text`.
+      2. Generate `n_solutions` candidate Z3 programmes.
+      3. Run Stage-1 vocabulary alignment with automatic repair.
+      4. Print whether alignment succeeded and save a run summary in `log_root`.
+    """
+
+    problem_text = (
+        "Of the eight students—George, Helen, Irving, Kyle, Lenore, Nina, Olivia, "
+        "and Robert—in a seminar, exactly six will give individual oral reports "
+        "during three consecutive days—Monday, Tuesday, and Wednesday. Exactly two "
+        "reports will be given each day—one in the morning and one in the afternoon—"
+        "according to the following conditions: Tuesday is the only day on which "
+        "George can give a report. Neither Olivia nor Robert can give an afternoon "
+        "report. If Nina gives a report, then on the next day Helen and Irving must "
+        "both give reports, unless Nina's report is given on Wednesday."
+    )
+
+    n_tests      = 2   # how many MCQ blocks to generate
+    n_solutions  = 2   # how many candidate programmes to spawn
+    log_root     = "runs"  # folder for all logs
+
+    # 1️⃣  Create manager & seed population
+    sm = SuiteManager(log_root=log_root)
+    sm.generate_test_cases(n_tests, problem_text)
+
+    test_cases_text = "\n Here are the test cases:\n" + "\n".join(tc.canonical_block for tc in sm.test_cases)
+    base_prompt = Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text)
+    
+    prompts = [
+        base_prompt + test_cases_text
+        for idx in range(n_solutions)
+    ]
+
+    # print length of each individual prompt
+    for i, prompt in enumerate(prompts):
+        print(f"Prompt {i+1} length: {len(prompt)} characters")
+        # rough conversion to tokens (assuming 4 characters per token)
+        print(f"Approx. tokens: {len(prompt) // 4}")
+        # Comparison with the original prompt length
+    print(f"Original prompt length: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text))} characters")
+    print(f"Approx. tokens: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text)) // 4}")
+
+    sm.generate_candidate_solutions(n_solutions, problem_text, prompts)
+
+    # 2️⃣  Vocabulary-alignment loop
+    aligned = run_vocab_alignment(
+        sm,
+        round_tag="vocab_round_01",
+        GOOD_THRESHOLD=0.8,   # tweak as needed
+        BAD_THRESHOLD=0.0,
+        max_iters=10,
+    )
+
+    print("\n✅ Alignment succeeded." if aligned else "\n❌ Alignment failed.")
+    sm.save_summary()
+
+
+if __name__ == "__main__":
+    main()
