@@ -53,9 +53,9 @@ class CandidateSolution:
         if logic_snippet is not None:
             raw_logic = logic_snippet.strip()
         else:
-            raw_logic = self._generate_decls_constraints(context_text, prompt)
+            raw_logic = self._generate_predicates_premises(context_text, prompt)
 
-        self.declarations, self.constraints = self._split_decls_constraints(raw_logic)
+        self.predicates, self.premises = self._split_predicates_premises(raw_logic)
 
         # Fitness placeholders (will be filled in by Evaluator)
         self.logic_fitness: float | str = "dummy"
@@ -64,14 +64,16 @@ class CandidateSolution:
 
     # ───────────────────────── helpers ─────────────────────────
 
-    def _generate_decls_constraints(self, context_text: str, user_prompt: str | None) -> str:
-        """Call the LLM to produce the # Declarations + # Constraints block."""
+    def _generate_predicates_premises(
+        self, context_text: str, user_prompt: str | None
+    ) -> str:
+        """Call the LLM to produce the Predicates + Premises block."""
         if user_prompt:
             generation_prompt = user_prompt
         else:
-            generation_prompt = Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=context_text)
+            generation_prompt = FOLIO_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=context_text)
 
-        print("  - Generating Declarations / Constraints with LLM …")
+        print("  - Generating Predicates / Premises with LLM …")
         snippet = generate_content(generation_prompt)
         if not snippet:
             raise RuntimeError("❌ LLM failed to generate a candidate solution.")
@@ -79,24 +81,20 @@ class CandidateSolution:
         return snippet.strip()
 
     @staticmethod
-    def _split_decls_constraints(block: str) -> Tuple[str, str]:
-        """Extract the two sections from a mixed block.
+    def _split_predicates_premises(block: str) -> Tuple[str, str]:
+        """Split the block into predicates and premises sections."""
+        predicates_path = r"#\s*Predicates(.+?)(?=#\s*Premises)"
+        premises_path = r"#\s*Premises(.+)$"
+        predicates_m = re.search(predicates_path, block, re.DOTALL | re.IGNORECASE)
+        premises_m = re.search(premises_path, block, re.DOTALL | re.IGNORECASE)
 
-        Raises if either is missing – they *must* be present for the programme to
-        be meaningful.
-        """
-        decl_pat = r"#\s*Declarations(.+?)(?=#\s*Constraints)"
-        cons_pat = r"#\s*Constraints(.+)$"
-        decl_m = re.search(decl_pat, block, re.DOTALL | re.IGNORECASE)
-        cons_m = re.search(cons_pat, block, re.DOTALL | re.IGNORECASE)
-
-        if not (decl_m and cons_m):
-            print("🛑 Cannot split declarations / constraints – expected both sections.")
+        if not (predicates_m and premises_m):
+            print("🛑 Cannot split predicates / premises – expected both sections.")
             return "", ""
 
-        declarations = decl_m.group(1).strip()
-        constraints = cons_m.group(1).strip()
-        return declarations, constraints
+        predicates = predicates_m.group(1).strip()
+        premises = premises_m.group(1).strip()
+        return predicates, premises
 
     # ───────────────────────── convenience ─────────────────────────
 
@@ -104,35 +102,23 @@ class CandidateSolution:
     def canonical_program(self) -> str:
         """Re‑assemble programme for execution (without # Options)."""
         return (
-            "# Declarations\n" + self.declarations + "\n\n" + "# Constraints\n" + self.constraints
+            "# Predicates\n" + self.predicates + "\n\n" + "# Premises\n" + self.premises
         )
-
 # ────────────────────────────────────────────────────────────────────────────────
 # Z3TestCase ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
 # ────────────────────────────────────────────────────────────────────────────────
 
 class TestCase:
-    """A multiple‑choice query block (# Options + gold answer).
-
-    Assumes the *input* is the raw block starting with `# Options`.
-    """
+    """Container for a single FOLIO test case (# Questions / # Conclusions)."""
 
     def __init__(self, raw_block: str):
         self.id = f"tc_{uuid.uuid4().hex[:8]}"
-
-        # Split on # Options header (can appear anywhere in the block)
-        parts = re.split(r"(?i)(?:^|\n)#\s*Options", raw_block, maxsplit=1)
-        if len(parts) != 2:
-            raise ValueError("🛑 TestCase must contain a `# Options` section.")
-        
-        self.nl_prelude = parts[0].strip()  # natural-language portion
-        self.options_block = "# Options" + parts[1]  # restore header for consistency
-
         self.original_block = raw_block.strip()
-        self.question_line, self.option_lines = self._split_question_options(self.options_block)
-        self.options_dict = self._parse_option_lines(self.option_lines)
-        self.correct_label = self._infer_correct_label(self.options_dict)
 
+        # Parse the two mandatory sections
+        self.questions, self.conclusions = self._split_questions_conclusions(self.original_block)
+
+        # Fitness placeholders (populated by the Evaluator later)
         self.logic_fitness: float | str = "dummy"
         self.vocab_fitness: float | str = "dummy"
         self.syntax_errors: list[str] = []
@@ -140,57 +126,34 @@ class TestCase:
     # ───────────────────────── helpers ─────────────────────────
 
     @staticmethod
-    def _split_question_options(block: str) -> Tuple[str, List[str]]:
-        # Expect first non‑empty line after `# Options` to start with "Question".
-        lines = [l.rstrip() for l in block.splitlines() if l.strip()]
+    def _split_questions_conclusions(block: str) -> Tuple[List[str], List[str]]:
+        """Return the question lines and conclusion lines (both stripped)."""
+        q_pat = r"#\s*Question(.+?)(?=#\s*Conclusions)"
+        c_pat = r"#\s*Conclusions(.+)$"
 
-        if not lines[0].lower().startswith("# options"):
-            raise ValueError("🛑 TestCase must begin with a `# Options` header.")
-        if not lines[1].lower().startswith("question"):
-            raise ValueError("🛑 Second line should be the Question statement.")
+        q_m = re.search(q_pat, block, re.DOTALL | re.IGNORECASE)
+        c_m = re.search(c_pat, block, re.DOTALL | re.IGNORECASE)
+        if not (q_m and c_m):
+            raise ValueError(
+                "🛑 TestCase must include both `# Questions` and `# Conclusions` blocks."
+            )
 
-        question_line = lines[1]
-        option_lines = lines[2:]
-        return question_line, option_lines
-
-    @staticmethod
-    def _parse_option_lines(lines: List[str]) -> dict[str, str]:
-        """Return mapping {label → logic‑string} and mark correct if ':::(X) *'."""
-        out = {}
-        for ln in lines:
-            # Match pattern like: some_logic ::: (A) or ::: (E) *
-            m = re.match(r"(.+?):::\s*\((.)\)\s*(\*?)$", ln)
-            if not m:
-                raise ValueError(f"🛑 Option line malformed: {ln}")
-            logic, label, is_gold = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
-            if is_gold:
-                out[label] = logic
-                # Attach the gold label now, so _infer_correct_label can pick it up
-                out["_gold"] = label
-            else:
-                out[label] = logic
-        return out
-
-    @staticmethod
-    def _infer_correct_label(options: dict[str, str]) -> str | None:
-        """Pull the gold label if present, and remove helper key."""
-        if "_gold" in options:
-            gold = options.pop("_gold")
-            return gold
-        return None
+        q_lines = [ln.strip() for ln in q_m.group(1).strip().splitlines() if ln.strip()]
+        c_lines = [ln.strip() for ln in c_m.group(1).strip().splitlines() if ln.strip()]
+        return q_lines, c_lines
 
     # ───────────────────────── convenience ─────────────────────────
 
     @property
     def canonical_block(self) -> str:
-        return self.original_block  # already canonical
+        return self.original_block
 
 # ────────────────────────────────────────────────────────────────────────────────
 # SuiteManagerZ3 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
 # ────────────────────────────────────────────────────────────────────────────────
 
 class SuiteManager:
-    """Manages candidate solutions & test cases for the Z3 workflow."""
+    """Manages co‑evolution of CandidateSolutions and TestCases in FOLIO land."""
 
     def __init__(self, *, log_root: str = "logs", run_id: str | None = None):
         self.logm = LogManager(root=log_root, run_id=run_id)
@@ -206,7 +169,6 @@ class SuiteManager:
         problem_text: str,
         prompts: List[str | None] | None = None,
     ) -> None:
-        """Populate self.solutions with *n* new candidates."""
         prompts = prompts or [None] * n
         for i in range(n):
             print(f"\n🧬 Creating Solution {i+1}/{n} …")
@@ -219,52 +181,57 @@ class SuiteManager:
         problem_text: str,
         user_prompt: str | None = None,
     ) -> None:
-        """Generate *n* MCQ test cases and append to self.test_cases."""
-        print(f"\n🧪 Generating {n} Z3 test cases …")
-        if not user_prompt:
-            prompt = Z3_TEST_SUITE_GENERATION_PROMPT.format(
-                PROBLEM=problem_text, num_cases=n
-            )
-        else:
-            prompt = user_prompt
+        print(f"\n🧪 Generating {n} FOLIO test cases …")
+        prompt = (
+            user_prompt
+            if user_prompt is not None
+            else FOLIO_TEST_SUITE_GENERATION_PROMPT.format(PROBLEM=problem_text, num_cases=n)
+        )
         raw = generate_content(prompt)
         if not raw:
             raise RuntimeError("❌ LLM failed to generate test cases.")
 
-        blocks = [blk.strip() for blk in re.split(r"^#####\s*$", raw, flags=re.MULTILINE) if blk.strip()]
+        # Expect the LLM to separate individual cases with five # characters
+        blocks = [b.strip() for b in re.split(r"^#####\s*$", raw, flags=re.MULTILINE) if b.strip()]
         if len(blocks) < n:
-            print("⚠️  LLM returned fewer cases than requested – taking what we got.")
+            print("⚠️  LLM returned fewer cases than requested – using what we got.")
         cases = [TestCase(b) for b in blocks[:n]]
         self.test_cases.extend(cases)
         print(f"  ✅ Added {len(cases)} fresh test cases.")
 
-        # Persist raw output for inspection
+        # Persist raw LLM output
         out_path = self.logm.run_dir / "raw_test_case_blocks.txt"
-        out_path.write_text(raw, encoding="utf-8")
+        Path(out_path).write_text(raw, encoding="utf-8")
 
     # ───────────────────────── evaluation scaffold ─────────────────────────
 
     def evaluate_fitness(self, *, scope: str = "adhoc") -> None:
-        """Delegate to EvaluatorZ3 (to be implemented)."""
         if self.evaluator is None:
-            raise NotImplementedError("Hook up EvaluatorZ3 before calling evaluate_fitness().")
+            raise NotImplementedError(
+                "Hook up EvaluatorFOLIO before calling evaluate_fitness()."
+            )
         self.evaluator.evaluate(self.solutions, self.test_cases, scope)
 
     # ───────────────────────── convenience ─────────────────────────
 
     def save_summary(self) -> None:
-        """Dump a flat text summary to the run folder."""
-        summ = []
-        summ.append("\n— Solutions —")
-        for sol in sorted(self.solutions, key=lambda s: float(s.logic_fitness if isinstance(s.logic_fitness, (int, float)) else 0), reverse=True):
-            summ.append(f"{sol.id}\tlogic={sol.logic_fitness}\tvocab={sol.vocab_fitness}")
-        summ.append("\n— Test Cases —")
+        summ = ["\n— Solutions —"]
+        for sol in sorted(
+            self.solutions,
+            key=lambda s: float(s.logic_fitness if isinstance(s.logic_fitness, (int, float)) else 0),
+            reverse=True,
+        ):
+            summ.append(
+                f"{sol.id}\tlogic={sol.logic_fitness}\tvocab={sol.vocab_fitness}"
+            )
+        summ.append("\n— Test Cases —")
         for tc in self.test_cases:
-            summ.append(f"{tc.id}\tlogic={tc.logic_fitness}\tvocab={tc.vocab_fitness}")
+            summ.append(
+                f"{tc.id}\tlogic={tc.logic_fitness}\tvocab={tc.vocab_fitness}"
+            )
 
         path = self.logm.run_dir / "summary.txt"
-        path.write_text("\n".join(summ), encoding="utf‑8")
-
+        Path(path).write_text("\n".join(summ), encoding="utf-8")
 # if __name__ == "__main__":
 #     tc = TestCase("""Question:
 # If R speaks second at meeting 2 and first at meeting 3, which one of the following is a complete and accurate list of those time slots any one of which could be the time slot in which R speaks at meeting 1?
