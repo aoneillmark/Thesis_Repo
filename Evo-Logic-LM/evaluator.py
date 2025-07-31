@@ -1,95 +1,102 @@
-import os
+"""evaluator_z3.py – Z3-based evaluator for the co-evolution system
+────────────────────────────────────────────────────────────────────
+Classifier rules adjusted per conversation:
+    • *vocab_error*  → programme fails to **compile/parse/execute** (syntax, NameError,
+      time‑out, etc.).
+    • *logic_error*  → programme runs but returns the **wrong option label** (or no
+      model / "unsat"), i.e. it simply answers incorrectly.
+    • *logic_pass*   → programme runs and returns the gold label.
+
+Everything else is tagged *other_error*.
+"""
+
+from __future__ import annotations
+
 import math
 import re
 from pathlib import Path
-from prolog_compiler import consult, extract_goal
+from typing import List, Tuple
+
 from logging_utils import LogManager
+from sat_problem_solver import LSAT_Z3_Program  # adjust import path if needed
+
+# ────────────────────────── error patterns ──────────────────────────
+# These strings flag *vocab* problems (parse / compile / runtime crash).
+_VOCAB_ERR_PATTERNS = (
+    "NameError",
+    "AttributeError",
+    "SyntaxError",
+    "undeclared",
+    "unknown",
+)
+
+# Any *runtime* message containing these tokens is still considered a
+# *logic* error: the programme ran but produced no satisfying model.
+_LOGIC_ERR_PATTERNS = (
+    "unsat",
+    "UNSAT",
+)
 
 
 class Evaluator:
-    """
-    • logic_matrix  : 1 = query succeeds
-    • vocab_matrix  : 1 = query *compiles* (no undefined predicate / arity / timeout)
-                      regardless of whether it logically succeeds
-    """
-    SIG_RE = re.compile(r'([a-z]\w*)\s*\(([^:-]*)')
+    """Compute fitness matrices for Z3 candidates & test cases."""
 
     def __init__(self, log_manager: LogManager):
         self.logm = log_manager
-        self.logic_matrix: list[list[int]] = []
-        self.vocab_matrix: list[list[int]] = []
+        self.logic_matrix: List[List[int]] = []
+        self.vocab_matrix: List[List[int]] = []
+        self.errors_matrix: List[List[str]] = []
 
-    # ───────────────────────── file helpers ──────────────────────────
-    def _dump_programs(self, solutions, folder: Path):
+    # ─────────────────────── helpers: persist artefacts ──────────────
+    def _dump_combined(self, solutions, test_cases, folder: Path):
         folder.mkdir(parents=True, exist_ok=True)
         for sol in solutions:
-            (folder / f"{sol.id}.pl").write_text(sol.original_program or "", encoding="utf-8")
+            for tc in test_cases:
+                combo = tc.options_block + "\n\n" + sol.canonical_program
+                (folder / f"{sol.id}__{tc.id}.z3.py").write_text(combo, encoding="utf-8")
 
-    def _dump_tests(self, test_cases, file_path: Path):
-        file_path.write_text("\n".join(tc.original_fact for tc in test_cases), encoding="utf-8")
-
-    # ───────────────────────── evaluation ────────────────────────────
+    # ─────────────────────── main entry point ───────────────────────
     def evaluate(self, solutions, test_cases, scope: str):
-        """
-        `scope` is a relative path fragment (e.g. "vocab_round_02/iter_03")
-        used only for logging output.
-        """
-        # ensure canonical_* fields exist --------------------------------
-        # for sol in solutions:
-        #     sol.canonical_program = getattr(sol, "canonical_program",
-        #                                     sol.original_program)
-        # for tc in test_cases:
-        #     tc.canonical_fact = getattr(tc, "canonical_fact",
-        #                                 tc.original_fact)
-        for sol in solutions:
-            if sol.canonical_program is None:
-                sol.canonical_program = sol.original_program # NOTE: could be breaking things
-        for tc in test_cases:
-            if tc.canonical_fact is None:
-                tc.canonical_fact = tc.original_fact
-
         workdir = self.logm.path(scope)
-        print(f"\n--- 🏆 Eval @ {workdir.relative_to(self.logm.run_dir)} ---")
+        print(f"\n--- 🏆 Z3-Eval @ {workdir.relative_to(self.logm.run_dir)} ---")
 
-        # persist artefacts ----------------------------------------------
-        self._dump_programs(solutions, workdir / "solutions")
-        self._dump_tests(test_cases, workdir / "tests.pl")
+        # Persist combined artefacts for debugging
+        self._dump_combined(solutions, test_cases, workdir / "combined_programs")
 
-        self.logic_matrix, self.vocab_matrix = [], []
-        self.errors_matrix = []
+        self.logic_matrix, self.vocab_matrix, self.errors_matrix = [], [], []
 
-        # ───────────────── solution-level loop ──────────────────────────
         for sol in solutions:
-            logic_row, vocab_row = [], []
-            logic_passes, vocab_passes = 0, 0
-            error_row = []
+            logic_row, vocab_row, error_row = [], [], []
+            logic_passes = vocab_passes = 0
 
             for tc in test_cases:
-                result, reason = self._run_single_test(
-                    sol.canonical_program, tc.canonical_fact
-                )
+                result, reason = self._run_single_test(sol, tc)
+                # print(f"  🧪 Test {tc.id} result: {result} ({reason})")
+                sol.syntax_errors.clear()
+                tc.syntax_errors.clear()
 
-                # ---------- logic matrix (1 = pass) ----------
+                # Update rows / counters ------------------------------------------------
                 if result == "logic_pass":
                     logic_passes += 1
-                    logic_row.append(1)
-                else:
-                    logic_row.append(0)
-
-                # ---------- vocab matrix (1 = pass) ----------
-                if (result != "vocab_error" and
-                        result != "other_error"):
                     vocab_passes += 1
+                    logic_row.append(1)
                     vocab_row.append(1)
-                else:
+                elif result == "logic_error":
+                    vocab_passes += 1  # compiled + executed OK
+                    logic_row.append(0)
+                    vocab_row.append(1)
+                elif result == "vocab_error":
+                    sol.syntax_errors.append(reason or "(unknown)")
+                    tc.syntax_errors.append(reason or "(unknown)")
+                    logic_row.append(0)
+                    vocab_row.append(0)
+                else:  # other_error
+                    sol.syntax_errors.append(reason or "(unknown)")
+                    tc.syntax_errors.append(reason or "(unknown)")
+                    logic_row.append(0)
                     vocab_row.append(0)
 
-                # ---------- unexpected outcome ---------------
-                if result not in ("logic_pass", "logic_error", "vocab_error"):
-                    print(f"        ⚠️  Unclassified outcome [{result}] - {reason}")
-                
-                # ---------- error row ------------------------
-                error_row.append(reason or "")
+                # error_row.append(reason or "")
 
             total = len(test_cases) or 1
             sol.logic_fitness = logic_passes / total
@@ -97,95 +104,105 @@ class Evaluator:
 
             self.logic_matrix.append(logic_row)
             self.vocab_matrix.append(vocab_row)
-            self.errors_matrix.append(error_row)
+            # self.errors_matrix.append(error_row)
 
-            print(f"  🔍 Solution {sol.id} logic_fitness: "
-                  f"{sol.logic_fitness:.2f} ({logic_passes}/{total})")
-            print(f"  📝 Solution {sol.id} vocab_fitness: "
-                  f"{sol.vocab_fitness:.2f} ({vocab_passes}/{total})")
-
-            # CSV for later inspection
-            self.logm.write_row(
-                f"{scope}/metrics.csv",
-                dict(scope=scope,
-                     sol_id=sol.id,
-                     logic=sol.logic_fitness,
-                     vocab=sol.vocab_fitness)
+            print(
+                f"  🔍 Solution {sol.id} logic_fitness: {sol.logic_fitness:.2f} ({logic_passes}/{total})"
+            )
+            print(
+                f"  📝 Solution {sol.id} vocab_fitness: {sol.vocab_fitness:.2f} ({vocab_passes}/{total})"
             )
 
-        # ───────────────── test-level summaries ─────────────────────────
+            self.logm.write_row(
+                f"{scope}/metrics.csv",
+                dict(scope=scope, sol_id=sol.id, logic=sol.logic_fitness, vocab=sol.vocab_fitness),
+            )
+
+        # ───────── per-test summaries ─────────────────────────────────
         num_sols = len(solutions) or 1
         for j, tc in enumerate(test_cases):
             logic_pass_count = sum(self.logic_matrix[i][j] for i in range(num_sols))
             vocab_pass_count = sum(self.vocab_matrix[i][j] for i in range(num_sols))
 
-            print(f"  🧪 Test {tc.id} logic_fitness: "
-                  f"{logic_pass_count/num_sols:.2f} ({logic_pass_count}/{num_sols})")
-            print(f"  📝 Test {tc.id} vocab_fitness: "
-                  f"{vocab_pass_count/num_sols:.2f} ({vocab_pass_count}/{num_sols})")
+            tc.logic_fitness = logic_pass_count / num_sols
+            tc.vocab_fitness = vocab_pass_count / num_sols
 
-        # confidence / discrimination still based on *logic* only
-        logic_fitnesses = [s.logic_fitness for s in solutions]
-        self._compute_confidence(test_cases, self.logic_matrix,
-                                 logic_fitnesses, "logic_confidence")
-        self._compute_discrimination(test_cases, self.logic_matrix,
-                                     "logic_discrimination")
+            print(
+                f"  🧪 Test {tc.id} logic_fitness: {tc.logic_fitness:.2f} ({logic_pass_count}/{num_sols})"
+            )
+            print(
+                f"  📝 Test {tc.id} vocab_fitness: {tc.vocab_fitness:.2f} ({vocab_pass_count}/{num_sols})"
+            )
 
-    # ───────────────────────── stats helpers ───────────────────────────
-    def _compute_confidence(self, test_cases, matrix, fitness_vector, attr_name):
-        total_weight = sum(fitness_vector)
+        # Higher-level statistics
+        logic_scores = [s.logic_fitness for s in solutions]
+        self._compute_confidence(test_cases, self.logic_matrix, logic_scores, "logic_confidence")
+        self._compute_discrimination(test_cases, self.logic_matrix, "logic_discrimination")
+
+    # ───────────────────── auxiliary stats ───────────────────────────
+    def _compute_confidence(self, test_cases, matrix, weights, attr):
+        total_w = sum(weights)
         for j, tc in enumerate(test_cases):
-            if total_weight == 0:
-                conf = 0.0
-            else:
-                passed_w = sum(matrix[i][j] * fitness_vector[i]
-                               for i in range(len(matrix)))
-                conf = passed_w / total_weight
-            setattr(tc, attr_name, conf)
-            print(f"  🧪 Test {tc.id} {attr_name}: {conf:.2f}")
+            conf = 0.0 if total_w == 0 else sum(matrix[i][j] * weights[i] for i in range(len(matrix))) / total_w
+            setattr(tc, attr, conf)
+            print(f"  🧪 Test {tc.id} {attr}: {conf:.2f}")
 
-    def _compute_discrimination(self, test_cases, matrix, attr_name):
-        total = len(matrix)
+    def _compute_discrimination(self, test_cases, matrix, attr):
+        n = len(matrix)
         for j, tc in enumerate(test_cases):
-            p = sum(matrix[i][j] for i in range(total)) / total if total else 0.0
-            disc = 0.0 if p in (0.0, 1.0) else -(p*math.log2(p) + (1-p)*math.log2(1-p))
-            setattr(tc, attr_name, disc)
-            print(f"  🧪 Test {tc.id} {attr_name}: {disc:.2f}")
+            p = sum(matrix[i][j] for i in range(n)) / n if n else 0.0
+            disc = 0.0 if p in (0.0, 1.0) else -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
+            setattr(tc, attr, disc)
+            print(f"  🧪 Test {tc.id} {attr}: {disc:.2f}")
 
-    # ───────────────────────── single call to Prolog ───────────────────
-    def _run_single_test(self, program: str, fact: str):
-        if not program or not fact:
-            return "other_error", "Missing program or test fact"
+    # ───────────────────── single run helper ─────────────────────────
+    def _run_single_test(self, sol, tc) -> Tuple[str, str | None]:
+        """Return (code, reason) where code ∈ {logic_pass, logic_error, vocab_error, other_error}"""
 
-        goal = extract_goal(fact)
-        if not goal:
-            return "other_error", "Malformed test case"
+        logic_program = tc.options_block + "\n\n" + sol.canonical_program
 
-        passed, reason = consult(program, goal)
-        # print(reason or "No reason provided")
+        try:
+            z3_prog = LSAT_Z3_Program(logic_program, "eval")
+        except Exception as exc:
+            return "vocab_error", f"ParseException: {exc}"
 
+        if not getattr(z3_prog, "flag", True) or z3_prog.standard_code is None:
+            return "vocab_error", "ParseError (flag=false)"
 
-        if not passed:
-            if self._is_vocab_error(reason):
-                return "vocab_error", reason
-            if self._is_logic_error(reason):
-                return "logic_error", reason
-            if not self._is_logic_error(reason) and not self._is_vocab_error(reason):
-                return "other_error", reason
-        return "logic_pass", None
+        output, err = z3_prog.execute_program()
+
+        if output is None:
+            if self._is_vocab_error(err):
+                return "vocab_error", err
+            if self._is_logic_error(err):
+                return "logic_error", err
+            return "other_error", err
+
+        # Map raw Z3 result to option label
+        try:
+            predicted = z3_prog.answer_mapping(output)
+        except Exception as exc:
+            return "other_error", f"MappingError: {exc}"
+
+        gold = getattr(tc, "correct_label", None)
+        if gold is None:
+            # Unlabelled test – compilation counts only as vocab pass
+            return "logic_error", "Missing gold label"
+
+        if predicted == gold:
+            return "logic_pass", None
+        else:
+            return "logic_error", f"Predicted {predicted}, expected {gold}"
+
+    # ───────────────────── pattern helpers ───────────────────────────
+    @staticmethod
+    def _is_vocab_error(msg: str | None) -> bool:
+        if not msg:
+            return False
+        return any(pat.lower() in msg.lower() for pat in _VOCAB_ERR_PATTERNS)
 
     @staticmethod
-    def _is_vocab_error(reason: str | None) -> bool:
-        if not reason:
+    def _is_logic_error(msg: str | None) -> bool:
+        if not msg:
             return False
-        return any(substr in reason for substr in (
-            "Unknown procedure", "Undefined procedure", "Syntax error",
-        ))
-
-    @staticmethod
-    def _is_logic_error(reason: str | None) -> bool:
-        if not reason:
-            return False
-        return any(substr in reason for substr in (
-            "Goal failed"
-        ))
+        return any(pat.lower() in msg.lower() for pat in _LOGIC_ERR_PATTERNS)

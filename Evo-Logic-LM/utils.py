@@ -64,9 +64,19 @@ except KeyError:
     print("❌ Error: GEMINI_API_KEY environment variable not set.")
     exit()
 
-model = genai.GenerativeModel('models/gemini-2.5-flash-lite-preview-06-17') # RPM: 15, TPM: 250,000, RPD: 1,000
+# model = genai.GenerativeModel('models/gemini-2.5-flash-lite-preview-06-17') # RPM: 15, TPM: 250,000, RPD: 1,000
 # model = genai.GenerativeModel('gemini-2.5-flash-lite')
 # model = genai.GenerativeModel('gemini-2.5-flash')
+
+generation_config = genai.types.GenerationConfig(
+    max_output_tokens=8192,        # Maximum tokens in response
+)
+
+model = genai.GenerativeModel(
+    'models/gemini-2.5-flash-lite-preview-06-17',
+    generation_config=generation_config
+)
+
 # ---------------------------------------------------------------------------
 # internal
 # ---------------------------------------------------------------------------
