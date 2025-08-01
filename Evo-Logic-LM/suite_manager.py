@@ -25,8 +25,8 @@ from typing import List, Tuple
 from utils import generate_content
 from logging_utils import LogManager
 from prompts import (
-    Z3_CANDIDATE_SOLUTION_PROMPT,
-    Z3_TEST_SUITE_GENERATION_PROMPT,
+    FOLIO_CANDIDATE_SOLUTION_PROMPT,
+    FOLIO_TEST_SUITE_PROMPT,
 )
 from evaluator import Evaluator
 
@@ -141,6 +141,23 @@ class TestCase:
         q_lines = [ln.strip() for ln in q_m.group(1).strip().splitlines() if ln.strip()]
         c_lines = [ln.strip() for ln in c_m.group(1).strip().splitlines() if ln.strip()]
         return q_lines, c_lines
+    
+    # Find the correct label for each conclusion
+    # The end of each conclusion line should be in the format:
+    # ∃y ∃x (Czech(x) ∧ Author(x, y) ∧ Book(y) ∧ Publish(y, year1946)) ::: Comment explanation here TRUE
+    # It could be TRUE, FALSE, or UNKNOWN
+    def extract_correct_label(self) -> str | None:
+        """Extract the correct label from the conclusion lines."""
+        import re
+        
+        for line in self.conclusions:
+            if ":::" in line:
+                # Look for TRUE, FALSE, or UNKNOWN at the end of the line (case insensitive)
+                match = re.search(r'\b(true|false|unknown)\b\s*$', line, re.IGNORECASE)
+                if match:
+                    return match.group(1).lower()
+        return None
+
 
     # ───────────────────────── convenience ─────────────────────────
 
@@ -185,7 +202,7 @@ class SuiteManager:
         prompt = (
             user_prompt
             if user_prompt is not None
-            else FOLIO_TEST_SUITE_GENERATION_PROMPT.format(PROBLEM=problem_text, num_cases=n)
+            else FOLIO_TEST_SUITE_PROMPT.format(PROBLEM=problem_text, num_cases=n)
         )
         raw = generate_content(prompt)
         if not raw:
@@ -265,25 +282,39 @@ class SuiteManager:
 #     print(tc.correct_label)
 
 
+# if __name__ == "__main__":
+#     # Example usage
+#     sm = SuiteManager(log_root="test_logs")
+#     number_of_cases = 3
+#     number_of_solutions = 2
+
+#     problem = "Of the eight students—George, Helen, Irving, Kyle, Lenore, Nina, Olivia, and Robert—in a seminar, exactly six will give individual oral reports during three consecutive days—Monday, Tuesday, and Wednesday. Exactly two reports will be given each day—one in the morning and one in the afternoon—according to the following conditions: Tuesday is the only day on which George can give a report. Neither Olivia nor Robert can give an afternoon report. If Nina gives a report, then on the next day Helen and Irving must both give reports, unless Nina's report is given on Wednesday."
+
+#     sm.generate_test_cases(number_of_cases, problem)
+
+#     prompts = [ 
+#         Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem).join("\n Here are the test cases:".join(tc.canonical_block for tc in sm.test_cases))
+#         for idx in range(number_of_solutions)
+#     ]
+
+#     sm.generate_candidate_solutions(number_of_solutions, problem, prompts)
+
+#     # Evaluate fitness (requires an Evaluator implementation)
+#     sm.evaluate_fitness(scope="test_run")
+
+#     # Save a summary of the run
+#     sm.save_summary()
+
 if __name__ == "__main__":
-    # Example usage
-    sm = SuiteManager(log_root="test_logs")
-    number_of_cases = 3
-    number_of_solutions = 2
-
-    problem = "Of the eight students—George, Helen, Irving, Kyle, Lenore, Nina, Olivia, and Robert—in a seminar, exactly six will give individual oral reports during three consecutive days—Monday, Tuesday, and Wednesday. Exactly two reports will be given each day—one in the morning and one in the afternoon—according to the following conditions: Tuesday is the only day on which George can give a report. Neither Olivia nor Robert can give an afternoon report. If Nina gives a report, then on the next day Helen and Irving must both give reports, unless Nina's report is given on Wednesday."
-
-    sm.generate_test_cases(number_of_cases, problem)
-
-    prompts = [ 
-        Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem).join("\n Here are the test cases:".join(tc.canonical_block for tc in sm.test_cases))
-        for idx in range(number_of_solutions)
+    # Test the function
+    test_lines = [
+        "∃y ∃x (Czech(x) ∧ Author(x, y) ∧ Book(y) ∧ Publish(y, year1946)) ::: Comment explanation here TRUE",
+        "Some formula ::: This is false FALSE",
+        "Another formula ::: We don't know UNKNOWN",
+        "Bad line ::: No label here",
+        "Multiple ::: colons ::: here TRUE"
     ]
 
-    sm.generate_candidate_solutions(number_of_solutions, problem, prompts)
-
-    # Evaluate fitness (requires an Evaluator implementation)
-    sm.evaluate_fitness(scope="test_run")
-
-    # Save a summary of the run
-    sm.save_summary()
+    for line in test_lines:
+        tc = TestCase("# Questions\ntest\n# Conclusions\n" + line)
+        print(f"'{line}' -> {tc.extract_correct_label()}")

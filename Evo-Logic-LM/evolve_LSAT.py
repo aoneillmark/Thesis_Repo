@@ -7,6 +7,7 @@ from suite_manager import SuiteManager
 from utils import generate_content
 from prompts import PROGRAM_SYNTAX_REPAIR_PROMPT, TEST_SYNTAX_REPAIR_PROMPT, Z3_CANDIDATE_SOLUTION_PROMPT
 from prolog_compiler import consult 
+from sat_problem_solver import LSAT_Z3_Program
 
 # ────────────────────────────────────────────────────────────────────────────
 # Configurable thresholds (spec-driven)
@@ -177,10 +178,17 @@ def repair_program(sm: SuiteManager, p_idx: int, failing_tests):
     prompt = PROGRAM_SYNTAX_REPAIR_PROMPT.format(
         program=sol.canonical_program,
         errors=failing_snips if failing_snips else "none captured",
+        compiled_code="",
     )
+
+    # print(f"Repairing program {p_idx} with prompt:\n{prompt}\n")
+    print(f"Repairing program {p_idx} with prompt:\n{failing_snips}\n")
+
     patched = generate_content(prompt)
     if patched:
-        sol.original_program = patched.strip()
+        print(f"Patched program {p_idx}:\n{patched}\n")
+        sol.raw_logic = patched.strip()
+        sol.declarations, sol.constraints = sol._split_decls_constraints(sol.raw_logic)
 
 
 def repair_test(sm: SuiteManager, t_idx: int, failing_progs):
@@ -229,16 +237,34 @@ def repair_test(sm: SuiteManager, t_idx: int, failing_progs):
         sol = failing_progs[0]
         prog_snips = sol.canonical_program + "\n% syntax error: (no matching error)"
 
+    
+
     prompt = TEST_SYNTAX_REPAIR_PROMPT.format(
         prog_snips=prog_snips.strip(),
         failing_query=tc.original_block,
+        compiled_code="",
     )
 
-    print(f"Repairing test {t_idx} with prompt:\n{prompt}\n")
+    # print(f"Repairing test {t_idx} with prompt:\n{prompt}\n")
+    print(f"Repairing test {t_idx} with prompt:\n{prog_snips}\n")
 
     updated = generate_content(prompt)
+    original = tc.original_block
     if updated:
-        tc.original_block = updated.strip()
+        try:
+            tc.original_block = updated.strip()
+
+            print(f"Updated test case {t_idx}:\n{tc.original_block}\n")
+            tc.question_line, tc.option_lines = tc._split_question_options(tc.original_block)
+            tc.options_dict = tc._parse_option_lines(tc.option_lines)
+            tc.correct_label = tc._infer_correct_label(tc.options_dict)
+            tc.options_block = "# Options\n" + "\n".join(
+                [tc.question_line, *tc.option_lines]
+            )
+        except Exception as e:
+            print(f"⚠️  Failed to update test case {t_idx}:\n{e}\n")
+            # If parsing fails, revert to original
+            tc.original_block = original
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -535,15 +561,9 @@ def main() -> None:
       4. Print whether alignment succeeded and save a run summary in `log_root`.
     """
 
-    problem_text = (
-        "Of the eight students—George, Helen, Irving, Kyle, Lenore, Nina, Olivia, "
-        "and Robert—in a seminar, exactly six will give individual oral reports "
-        "during three consecutive days—Monday, Tuesday, and Wednesday. Exactly two "
-        "reports will be given each day—one in the morning and one in the afternoon—"
-        "according to the following conditions: Tuesday is the only day on which "
-        "George can give a report. Neither Olivia nor Robert can give an afternoon "
-        "report. If Nina gives a report, then on the next day Helen and Irving must "
-        "both give reports, unless Nina's report is given on Wednesday."
+    problem_text = ( """
+Four boys—Fred, Juan, Marc, and Paul—and three girls—Nita, Rachel, and Trisha—will be assigned to a row of five adjacent lockers, numbered consecutively 1 through 5, arranged along a straight wall. The following conditions govern the assignment of lockers to the seven children: Each locker must be assigned to either one or two children, and each child must be assigned to exactly one locker. Each shared locker must be assigned to one girl and one boy. Juan must share a locker, but Rachel cannot share a locker. Nita's locker cannot be adjacent to Trisha's locker. Fred must be assigned to locker 3.
+"""
     )
 
     n_tests      = 2   # how many MCQ blocks to generate
@@ -562,14 +582,14 @@ def main() -> None:
         for idx in range(n_solutions)
     ]
 
-    # print length of each individual prompt
-    for i, prompt in enumerate(prompts):
-        print(f"Prompt {i+1} length: {len(prompt)} characters")
-        # rough conversion to tokens (assuming 4 characters per token)
-        print(f"Approx. tokens: {len(prompt) // 4}")
-        # Comparison with the original prompt length
-    print(f"Original prompt length: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text))} characters")
-    print(f"Approx. tokens: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text)) // 4}")
+    # # print length of each individual prompt
+    # for i, prompt in enumerate(prompts):
+    #     print(f"Prompt {i+1} length: {len(prompt)} characters")
+    #     # rough conversion to tokens (assuming 4 characters per token)
+    #     print(f"Approx. tokens: {len(prompt) // 4}")
+    #     # Comparison with the original prompt length
+    # print(f"Original prompt length: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text))} characters")
+    # print(f"Approx. tokens: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text)) // 4}")
 
     sm.generate_candidate_solutions(n_solutions, problem_text, prompts)
 
@@ -579,7 +599,7 @@ def main() -> None:
         round_tag="vocab_round_01",
         GOOD_THRESHOLD=0.8,   # tweak as needed
         BAD_THRESHOLD=0.0,
-        max_iters=10,
+        max_iters=20,
     )
 
     print("\n✅ Alignment succeeded." if aligned else "\n❌ Alignment failed.")
