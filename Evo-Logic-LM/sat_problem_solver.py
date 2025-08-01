@@ -9,6 +9,7 @@ class LSAT_Z3_Program:
     def __init__(self, logic_program:str, dataset_name:str) -> None:
         self.logic_program = logic_program
         self.dataset_name = dataset_name
+        self.error_message = None  # Add this line
         
         # create the folder to save the program first
         cache_dir = os.path.join(os.path.dirname(__file__), '.cache_program')
@@ -22,6 +23,7 @@ class LSAT_Z3_Program:
             self.flag = True
         except Exception as e:
             print(f"Error parsing logic program: {e}")
+            self.error_message = str(e)  # Store the error message
             self.standard_code = None
             self.flag = False
             return
@@ -277,26 +279,41 @@ class LSAT_Z3_Program:
 logic_program = """
 
 # Options
-Question ::: Which of the following statements about the reporting schedule is necessarily true?
-is_valid(report(Nina, Tue, Morning) or report(Nina, Tue, Afternoon)) ::: (A)
-is_valid(report(Helen, Mon, Morning) or report(Helen, Mon, Afternoon)) ::: (B)
-is_valid(report(Robert, Mon, Morning) or report(Robert, Mon, Afternoon) or report(Robert, Tue, Morning) or report(Robert, Tue, Afternoon) or report(Robert, Wed, Morning) or report(Robert, Wed, Afternoon)) ::: (C)
-is_valid(report(Irving, Wed, Morning) or report(Irving, Wed, Afternoon)) ::: (D) *
-is_valid(report(George, Mon, Morning) or report(George, Mon, Afternoon)) ::: (E)
+Question ::: Which of the following assignments of students to report slots satisfies all conditions?
+is_sat(And(report_day(George) == Monday, report_time(George) == Morning, report_day(Helen) == Monday, report_time(Helen) == Afternoon, report_day(Irving) == Tuesday, report_time(Irving) == Morning, report_day(Lenore) == Tuesday, report_time(Lenore) == Afternoon, report_day(Nina) == Wednesday, report_time(Nina) == Morning, report_day(Olivia) == Wednesday, report_time(Olivia) == Afternoon)) ::: (A)
+is_sat(And(report_day(George) == Monday, report_time(George) == Morning, report_day(Lenore) == Monday, report_time(Lenore) == Afternoon, report_day(Helen) == Tuesday, report_time(Helen) == Morning, report_day(Irving) == Tuesday, report_time(Irving) == Afternoon, report_day(Nina) == Wednesday, report_time(Nina) == Morning, report_day(Robert) == Wednesday, report_time(Robert) == Afternoon)) ::: (B)
+is_sat(And(report_day(George) == Monday, report_time(George) == Morning, report_day(Nina) == Monday, report_time(Nina) == Afternoon, report_day(Helen) == Tuesday, report_time(Helen) == Morning, report_day(Irving) == Tuesday, report_time(Irving) == Afternoon, report_day(Lenore) == Wednesday, report_time(Lenore) == Morning, report_day(Olivia) == Wednesday, report_time(Olivia) == Afternoon)) ::: (C) *
+is_sat(And(report_day(George) == Monday, report_time(George) == Morning, report_day(Helen) == Monday, report_time(Helen) == Afternoon, report_day(Irving) == Tuesday, report_time(Irving) == Morning, report_day(Lenore) == Tuesday, report_time(Lenore) == Afternoon, report_day(Robert) == Wednesday, report_time(Robert) == Morning, report_day(Nina) == Wednesday, report_time(Nina) == Afternoon)) ::: (D)
+is_sat(And(report_day(Helen) == Monday, report_time(Helen) == Morning, report_day(George) == Monday, report_time(George) == Afternoon, report_day(Irving) == Tuesday, report_time(Irving) == Morning, report_day(Lenore) == Tuesday, report_time(Lenore) == Afternoon, report_day(Nina) == Wednesday, report_time(Nina) == Morning, report_day(Olivia) == Wednesday, report_time(Olivia) == Afternoon)) ::: (E)
 
 # Declarations
 students = EnumSort([George, Helen, Irving, Kyle, Lenore, Nina, Olivia, Robert])
 days = EnumSort([Monday, Tuesday, Wednesday])
 times = EnumSort([Morning, Afternoon])
-report = Function([students, days, times] -> [bool])
+reports = Function('reports', students, ProductSort(days, times))
+num_students_reporting = 6
+num_days = 3
+num_slots_per_day = 2
+total_slots = num_days * num_slots_per_day
 
 # Constraints
-ForAll([s:students], Sum([d:days, t:times], Ite(report(s, d, t), 1, 0)) <= 1) ::: Exactly six students will give individual oral reports
-ForAll([d:days], Sum([s:students, t:times], Ite(report(s, d, t), 1, 0)) == 2) ::: Exactly two reports will be given each day
-ForAll([s:students], Implies(report(s, Tuesday, Morning) or report(s, Tuesday, Afternoon), s == George or s == Olivia or s == Robert or s == Helen or s == Irving or s == Kyle or s == Lenore or s == Nina)) ::: Tuesday is the only day on which George can give a report.
-ForAll([s:students], Implies(report(s, Monday, Afternoon) or report(s, Tuesday, Afternoon) or report(s, Wednesday, Afternoon), s != Olivia and s != Robert)) ::: Neither Olivia nor Robert can give an afternoon report.
-ForAll([s:students, d:days, t:times], Implies(report(s, d, t), And(s != Nina, Not(report(Helen, NextDay(d), Morning) or report(Helen, NextDay(d), Afternoon) or report(Irving, NextDay(d), Morning) or report(Irving, NextDay(d), Afternoon))) or (s == Nina and d == Wednesday))) ::: If Nina gives a report, then on the next day Helen and Irving must both give reports, unless Nina's report is given on Wednesday.
-ForAll([s:students, d:days], And(Implies(report(s, d, Morning), s != George), Implies(report(s, d, Afternoon), s != George))) ::: George cannot give reports on Monday or Wednesday.
+ForAll([s:students], Count([d:days, t:times], reports(s) == (d, t)) <= 1) ::: Each student reports at most once
+ForAll([d:days, t:times], Count([s:students], reports(s) == (d, t)) == 1) ::: Exactly one student per slot
+ForAll([s:students], Count([d:days, t:times], reports(s) == (d, t)) == 1) ::: Exactly six students will give oral reports
+ForAll([s:students], Implies(Or(reports(s) == (Tuesday, Morning), reports(s) == (Tuesday, Afternoon)), s == George)) ::: Tuesday is the only day on which George can give a report. (This constraint implicitly handles that George must report, and only on Tuesday)
+ForAll([s:students], Implies(Or(reports(s) == (Monday, Afternoon), reports(s) == (Tuesday, Afternoon), reports(s) == (Wednesday, Afternoon)), And(s != Olivia, s != Robert))) ::: Neither Olivia nor Robert can give an afternoon report.
+ForAll([s:students], Implies(And(reports(s) == (Wednesday, Morning), s == Nina), And(Or(reports(Helen) == (Monday, Morning), reports(Helen) == (Monday, Afternoon), reports(Helen) == (Tuesday, Morning), reports(Helen) == (Tuesday, Afternoon)), And(Or(reports(Irving) == (Monday, Morning), reports(Irving) == (Monday, Afternoon), reports(Irving) == (Tuesday, Morning), reports(Irving) == (Tuesday, Afternoon)))))) ::: If Nina gives a report on Wednesday, then Helen and Irving must both give reports on Monday or Tuesday.
+ForAll([s:students], Implies(And(reports(s) == (Monday, Morning), s == Nina), Implies(And(Or(reports(Helen) == (Tuesday, Morning), reports(Helen) == (Tuesday, Afternoon)), And(Or(reports(Irving) == (Tuesday, Morning), reports(Irving) == (Tuesday, Afternoon)))), True))) ::: If Nina gives a report on Monday, and Helen and Irving give reports on Tuesday, this is allowed.
+ForAll([s:students], Implies(And(reports(s) == (Monday, Morning), s == Nina), Implies(And(Or(reports(Helen) == (Monday, Morning), reports(Helen) == (Monday, Afternoon)), And(Or(reports(Irving) == (Monday, Morning), reports(Irving) == (Monday, Afternoon)))), True))) ::: If Nina gives a report on Monday, and Helen and Irving give reports on Monday, this is allowed.
+ForAll([s:students], Implies(And(reports(s) == (Tuesday, Morning), s == Nina), Implies(And(Or(reports(Helen) == (Wednesday, Morning), reports(Helen) == (Wednesday, Afternoon)), And(Or(reports(Irving) == (Wednesday, Morning), reports(Irving) == (Wednesday, Afternoon)))), True))) ::: If Nina gives a report on Tuesday, and Helen and Irving give reports on Wednesday, this is allowed.
+ForAll([s:students], Implies(And(reports(s) == (Monday, Morning), s == Nina), Implies(And(Or(reports(Helen) == (Wednesday, Morning), reports(Helen) == (Wednesday, Afternoon)), And(Or(reports(Irving) == (Wednesday, Morning), reports(Irving) == (Wednesday, Afternoon)))), True))) ::: If Nina gives a report on Monday, and Helen and Irving give reports on Wednesday, this is allowed.
+ForAll([s:students], Implies(And(reports(s) == (Tuesday, Morning), s == Nina), Implies(And(Or(reports(Helen) == (Wednesday, Morning), reports(Helen) == (Wednesday, Afternoon)), And(Or(reports(Irving) == (Wednesday, Morning), reports(Irving) == (Wednesday, Afternoon)))), True))) ::: If Nina gives a report on Tuesday, and Helen and Irving give reports on Wednesday, this is allowed.
+ForAll([s:students], Implies(And(reports(s) == (Wednesday, Morning), s == Nina), True)) ::: If Nina reports on Wednesday, the condition about Helen and Irving giving reports on the next day is vacuously true.
+ForAll([s:students], Implies(And(reports(s) == (Monday, Morning), s == Nina), And(Or(reports(Helen) == (Tuesday, Morning), reports(Helen) == (Tuesday, Afternoon)), And(Or(reports(Irving) == (Tuesday, Morning), reports(Irving) == (Tuesday, Afternoon)))))) ::: If Nina reports on Monday, then Helen and Irving must both give reports on Tuesday.
+ForAll([s:students], Implies(And(reports(s) == (Tuesday, Morning), s == Nina), And(Or(reports(Helen) == (Wednesday, Morning), reports(Helen) == (Wednesday, Afternoon)), And(Or(reports(Irving) == (Wednesday, Morning), reports(Irving) == (Wednesday, Afternoon)))))) ::: If Nina reports on Tuesday, then Helen and Irving must both give reports on Wednesday.
+ForAll([s:students], Implies(And(reports(s) == (Monday, Morning), s == Nina), And(Or(reports(Helen) == (Tuesday, Morning), reports(Helen) == (Tuesday, Afternoon)), And(Or(reports(Irving) == (Tuesday, Morning), reports(Irving) == (Tuesday, Afternoon)))))) ::: If Nina reports on Monday, then Helen and Irving must both give reports on Tuesday.
+ForAll([s:students], Implies(And(reports(s) == (Tuesday, Morning), s == Nina), And(Or(reports(Helen) == (Wednesday, Morning), reports(Helen) == (Wednesday, Afternoon)), And(Or(reports(Irving) == (Wednesday, Morning), reports(Irving) == (Wednesday, Afternoon)))))) ::: If Nina reports on Tuesday, then Helen and Irving must both give reports on Wednesday.
+
 """
 
 

@@ -51,11 +51,11 @@ class CandidateSolution:
         self.id = f"sol_{uuid.uuid4().hex[:8]}"
 
         if logic_snippet is not None:
-            raw_logic = logic_snippet.strip()
+            self.raw_logic = logic_snippet.strip()
         else:
-            raw_logic = self._generate_decls_constraints(context_text, prompt)
+            self.raw_logic = self._generate_decls_constraints(context_text, prompt)
 
-        self.declarations, self.constraints = self._split_decls_constraints(raw_logic)
+        self.declarations, self.constraints = self._split_decls_constraints(self.raw_logic)
 
         # Fitness placeholders (will be filled in by Evaluator)
         self.logic_fitness: float | str = "dummy"
@@ -103,6 +103,8 @@ class CandidateSolution:
     @property
     def canonical_program(self) -> str:
         """Re‑assemble programme for execution (without # Options)."""
+        # Refresh just in case raw_logic has changed
+        self.declarations, self.constraints = self._split_decls_constraints(self.raw_logic)
         return (
             "# Declarations\n" + self.declarations + "\n\n" + "# Constraints\n" + self.constraints
         )
@@ -141,16 +143,56 @@ class TestCase:
 
     @staticmethod
     def _split_question_options(block: str) -> Tuple[str, List[str]]:
-        # Expect first non‑empty line after `# Options` to start with "Question".
+        """Split the options block into question line and option lines.
+        
+        Flexible parsing that finds # Options and Question lines anywhere in the block.
+        """
         lines = [l.rstrip() for l in block.splitlines() if l.strip()]
-
-        if not lines[0].lower().startswith("# options"):
-            raise ValueError("🛑 TestCase must begin with a `# Options` header.")
-        if not lines[1].lower().startswith("question"):
-            raise ValueError("🛑 Second line should be the Question statement.")
-
-        question_line = lines[1]
-        option_lines = lines[2:]
+        
+        if not lines:
+            raise ValueError("🛑 Empty block provided.")
+        
+        # Find the # Options line (should exist somewhere)
+        options_line_idx = None
+        for i, line in enumerate(lines):
+            if line.lower().startswith("# options"):
+                options_line_idx = i
+                break
+        
+        if options_line_idx is None:
+            raise ValueError("🛑 No '# Options' header found in block.")
+        
+        # Find the question line - look for lines containing ":::" and "question"
+        question_line = None
+        question_idx = None
+        
+        # Start searching after the # Options line
+        for i, line in enumerate(lines[options_line_idx + 1:], options_line_idx + 1):
+            if ":::" in line and "question" in line.lower():
+                question_line = line
+                question_idx = i
+                break
+        
+        # If no explicit question line found, look for the first line with ":::" after # Options
+        if question_line is None:
+            for i, line in enumerate(lines[options_line_idx + 1:], options_line_idx + 1):
+                if ":::" in line:
+                    question_line = line
+                    question_idx = i
+                    break
+        
+        if question_line is None:
+            raise ValueError("🛑 Could not find a question line with ':::'.")
+        
+        # All remaining lines with ":::" are option lines
+        option_lines = []
+        for i, line in enumerate(lines):
+            if i > question_idx and ":::" in line and line != question_line:
+                option_lines.append(line)
+        
+        if not option_lines:
+            raise ValueError("🛑 Could not find any option lines after the question.")
+        
         return question_line, option_lines
 
     @staticmethod

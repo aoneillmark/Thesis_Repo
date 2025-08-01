@@ -66,14 +66,17 @@ class Evaluator:
         self.logic_matrix, self.vocab_matrix, self.errors_matrix = [], [], []
 
         for sol in solutions:
+            sol.syntax_errors.clear()
+        for tc in test_cases:
+            tc.syntax_errors.clear()
+    
+        for sol in solutions:
             logic_row, vocab_row, error_row = [], [], []
             logic_passes = vocab_passes = 0
 
             for tc in test_cases:
                 result, reason = self._run_single_test(sol, tc)
                 # print(f"  🧪 Test {tc.id} result: {result} ({reason})")
-                sol.syntax_errors.clear()
-                tc.syntax_errors.clear()
 
                 # Update rows / counters ------------------------------------------------
                 if result == "logic_pass":
@@ -162,13 +165,17 @@ class Evaluator:
         logic_program = tc.options_block + "\n\n" + sol.canonical_program
 
         try:
-            z3_prog = LSAT_Z3_Program(logic_program, "eval")
+            z3_prog = LSAT_Z3_Program(logic_program, "AR-LSAT")
         except Exception as exc:
             return "vocab_error", f"ParseException: {exc}"
 
         if not getattr(z3_prog, "flag", True) or z3_prog.standard_code is None:
-            return "vocab_error", "ParseError (flag=false)"
-
+            # Try to get the actual error message from the LSAT_Z3_Program instance
+            error_msg = getattr(z3_prog, 'error_message', None)
+            if error_msg:
+                return "vocab_error", f"ParseError: {error_msg}"
+            return "vocab_error", "ParseError (flag=false). Are you sure # Options, # Declarations, and # Constraints are correct and in the code?"
+    
         output, err = z3_prog.execute_program()
 
         if output is None:

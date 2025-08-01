@@ -468,8 +468,15 @@ Count([d:days], toured(d) == Production) >= 1 ::: Each division is toured at lea
 Count([d:days], toured(d) == Sales) >= 1 ::: Each division is toured at least once
 toured(Monday) != Operations ::: The Operations division is not toured on Monday
 ------
+
+
+ENSURE that the program maintains # Declarations and # Constraints sections!
+You should not include # Questions or # Options sections.
+
 >>> Initial Program:
 {program}
+>>> Compiled Program:
+{compiled_code}
 >>> Error Message(s):
 {errors}
 >>> Corrected Program:
@@ -559,12 +566,19 @@ toured(Monday) != Operations ::: The Operations division is not toured on Monday
 Failing Programs and Syntax Errors:
 {prog_snips}
 
+>>> Compiled Program:
+{compiled_code}
+
 ------
 
 Original Test Case:
 {failing_query}
 
 ------
+ENSURE that the test case maintains # Question and # Options sections!
+You should not include # Declarations or # Constraints sections.
+If the error is with the program and NOT the original test case, simply return the original test case unchanged.
+
 Now write a repaired version of the test case block below.
 """
 # If and only if you think the test case is already correct (and the issue lies with the program), simply return it unchanged.
