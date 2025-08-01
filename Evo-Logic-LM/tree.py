@@ -27,4 +27,4 @@ def print_tree(directory, prefix="", show_files=True, file_extensions=[".py"], e
 
 if __name__ == "__main__":
     print("Directory tree (excluding logs folder):")
-    print_tree(".", file_extensions=[".py"], exclude_dirs=["logs", "__pycache__", "venv", "benchmark_policy_2", "logs_copy", ".pytest_cache", ".test_logs", "test_logs", "pytest_cache", "evaluation_logs"])
+    print_tree(".", file_extensions=[".py"], exclude_dirs=["logs", "__pycache__", "venv", "benchmark_policy_2", "logs_copy", ".pytest_cache", ".test_logs", "test_logs", "pytest_cache", "evaluation_logs", "runs"])
