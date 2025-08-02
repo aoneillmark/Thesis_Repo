@@ -2,41 +2,39 @@
 from suite_manager import SuiteManager
 from evolve import run_vocab_alignment
 from coevo_engine import CoCoEvoEngine
-from prompts import PROLOG_GENERATION_PROMPT           # already in your repo
+from prompts import FOLIO_CANDIDATE_SOLUTION_PROMPT           # already in your repo
 
-CONTRACT_PATH = "insurance_contract.txt"
 
 if __name__ == "__main__":
-    # ── 0. Load contract text ──────────────────────────────────────────
-    with open(CONTRACT_PATH, encoding="utf-8") as fh:
-        contract_text = fh.read()
+    problem_text = (
+"""
+If people perform in school talent shows often, then they attend and are very engaged with school events. 
+People either perform in school talent shows often or are inactive and disinterested members of their community. 
+If people chaperone high school dances, then they are not students who attend the school. 
+All people who are inactive and disinterested members of their community chaperone high school dances. 
+All young children and teenagers who wish to further their academic careers and educational opportunities are students who attend the school. 
+Bonnie either both attends and is very engaged with school events and is a student who attends the school, or she neither attends and is very engaged with school events nor is a student who attends the school.
+"""
+    )
+
+    n_tests      = 2   # how many MCQ blocks to generate
+    n_solutions  = 2   # how many candidate programmes to spawn
+    log_root     = "runs"  # folder for all logs
+
 
     # ── 1. Seed an initial population ──────────────────────────────────
-    sm = SuiteManager()
-    sm.test_cases = sm.generate_test_cases(num_cases=6, contract_text=contract_text)
+    sm = SuiteManager(log_root=log_root)
+    sm.generate_test_cases(n_tests, problem_text)
 
-    # sol_prompts = [
-    #     (lambda ct, p=PROLOG_GENERATION_PROMPT: p.format(contract_text=ct))
-    #     for _ in range(4)
-    # ]
 
-    # Make prompts for candidate solutions, with PROLOG_GENERATION_PROMPT, and .join(super_secret_prompt)
-    super_secret_prompt = "\n\nAdditionally, here are the test cases you will be tested on; make sure to match the predicate signature and arity. {test_cases}"
-    
-    sol_prompts = [
-        (lambda ct, p=PROLOG_GENERATION_PROMPT, secret=super_secret_prompt: 
-         p.format(contract_text=ct) + secret.format(
-             test_cases="\n".join(tc.original_fact for tc in sm.test_cases)))
-        for _ in range(4)
-    ]
+    questions = "\n".join(tc.questions for tc in sm.test_cases)
+    conclusions = "\n".join(tc.conclusions for tc in sm.test_cases)
 
-    sm.generate_solutions(num_solutions=4,
-                          contract_text=contract_text,
-                          prompt_fns=sol_prompts)
+    base_prompt = FOLIO_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text, QUESTION=questions, CONCLUSION=conclusions)
 
-    # n.b. not necessary since we do it in run()
-    # # ── 2. Stage-1: vocabulary alignment (re-uses evolve.py) ───────────
-    # run_vocab_alignment(sm, max_iters=10)
+
+    sm.generate_candidate_solutions(n_solutions, problem_text, prompts=[base_prompt] * n_solutions)
+
 
     # ── 3. Stage-2: logic-level co-evolution ───────────────────────────
     engine = CoCoEvoEngine(sm,

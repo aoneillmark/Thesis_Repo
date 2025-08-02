@@ -107,8 +107,8 @@ Student(x) ::: x is a student.
 (Student(rina) ∧ Unaware(rina)) ⊕ ¬(Student(rina) ∨ Unaware(rina)) ::: Rina is either a student and unaware that caffeine is a drug, or neither a student nor unaware that caffeine is a drug. 
 ¬(Dependent(rina) ∧ Student(rina)) → (Dependent(rina) ∧ Student(rina)) ⊕ ¬(Dependent(rina) ∨ Student(rina)) ::: If Rina is not a person dependent on caffeine and a student, then Rina is either a person dependent on caffeine and a student, or neither a person dependent on caffeine nor a student.
 # Conclusion:
-Jokes(rina) ⊕ Unaware(rina) ::: Rina is either a person who jokes about being addicted to caffeine or is unaware that caffeine is a drug.
-((Jokes(rina) ∧ Unaware(rina)) ⊕ ¬(Jokes(rina) ∨ Unaware(rina))) → (Jokes(rina) ∧ Drinks(rina)) ::: If Rina is either a person who jokes about being addicted to caffeine and a person who is unaware that caffeine is a drug, or neither a person who jokes about being addicted to caffeine nor a person who is unaware that caffeine is a drug, then Rina jokes about being addicted to caffeine and regularly drinks coffee.
+Jokes(rina) ⊕ Unaware(rina) ::: Rina is either a person who jokes about being addicted to caffeine or is unaware that caffeine is a drug. TRUE
+((Jokes(rina) ∧ Unaware(rina)) ⊕ ¬(Jokes(rina) ∨ Unaware(rina))) → (Jokes(rina) ∧ Drinks(rina)) ::: If Rina is either a person who jokes about being addicted to caffeine and a person who is unaware that caffeine is a drug, or neither a person who jokes about being addicted to caffeine nor a person who is unaware that caffeine is a drug, then Rina jokes about being addicted to caffeine and regularly drinks coffee. FALSE
 ------
 # Problem:
 Miroslav Venhoda was a Czech choral conductor who specialized in the performance of Renaissance and Baroque music. Any choral conductor is a musician. Some musicians love music. Miroslav Venhoda published a book in 1946 called Method of Studying Gregorian Chant.
@@ -132,9 +132,9 @@ Czech(miroslav) ∧ ChoralConductor(miroslav) ∧ Specialize(miroslav, renaissan
 ∃x (Musician(x) ∧ Love(x, music)) ::: Some musicians love music.
 Book(methodOfStudyingGregorianChant) ∧ Author(miroslav, methodOfStudyingGregorianChant) ∧ Publish(methodOfStudyingGregorianChant, year1946) ::: Miroslav Venhoda published a book in 1946 called Method of Studying Gregorian Chant.
 # Conclusion:
-Love(miroslav, music) ::: Miroslav Venhoda loved music.
-∃y ∃x (Czech(x) ∧ Author(x, y) ∧ Book(y) ∧ Publish(y, year1946)) ::: A Czech person wrote a book in 1946.
-¬∃x (ChoralConductor(x) ∧ Specialize(x, renaissance)) ::: No choral conductor specialized in the performance of Renaissance.
+Love(miroslav, music) ::: Miroslav Venhoda loved music. UNKNOWN
+∃y ∃x (Czech(x) ∧ Author(x, y) ∧ Book(y) ∧ Publish(y, year1946)) ::: A Czech person wrote a book in 1946. FALSE
+¬∃x (ChoralConductor(x) ∧ Specialize(x, renaissance)) ::: No choral conductor specialized in the performance of Renaissance. UNKNOWN
 ------
 
 # Problem:
@@ -144,7 +144,8 @@ Love(miroslav, music) ::: Miroslav Venhoda loved music.
 # Conclusion:
 {CONCLUSION}
 
-Write the # Predicates and # Premises sections here:
+Do not write the # Problem, # Question, or # Conclusion sections.
+Write the # Predicates: and # Premises: sections here:
 """
 
 
@@ -176,8 +177,8 @@ Student(x) ::: x is a student.
 (Student(rina) ∧ Unaware(rina)) ⊕ ¬(Student(rina) ∨ Unaware(rina)) ::: Rina is either a student and unaware that caffeine is a drug, or neither a student nor unaware that caffeine is a drug. 
 ¬(Dependent(rina) ∧ Student(rina)) → (Dependent(rina) ∧ Student(rina)) ⊕ ¬(Dependent(rina) ∨ Student(rina)) ::: If Rina is not a person dependent on caffeine and a student, then Rina is either a person dependent on caffeine and a student, or neither a person dependent on caffeine nor a student.
 # Conclusion:
-Jokes(rina) ⊕ Unaware(rina) ::: Rina is either a person who jokes about being addicted to caffeine or is unaware that caffeine is a drug.
-((Jokes(rina) ∧ Unaware(rina)) ⊕ ¬(Jokes(rina) ∨ Unaware(rina))) → (Jokes(rina) ∧ Drinks(rina)) ::: If Rina is either a person who jokes about being addicted to caffeine and a person who is unaware that caffeine is a drug, or neither a person who jokes about being addicted to caffeine nor a person who is unaware that caffeine is a drug, then Rina jokes about being addicted to caffeine and regularly drinks coffee.
+Jokes(rina) ⊕ Unaware(rina) ::: Rina is either a person who jokes about being addicted to caffeine or is unaware that caffeine is a drug. TRUE
+((Jokes(rina) ∧ Unaware(rina)) ⊕ ¬(Jokes(rina) ∨ Unaware(rina))) → (Jokes(rina) ∧ Drinks(rina)) ::: If Rina is either a person who jokes about being addicted to caffeine and a person who is unaware that caffeine is a drug, or neither a person who jokes about being addicted to caffeine nor a person who is unaware that caffeine is a drug, then Rina jokes about being addicted to caffeine and regularly drinks coffee. FALSE
 ------
 # Problem:
 Miroslav Venhoda was a Czech choral conductor who specialized in the performance of Renaissance and Baroque music. Any choral conductor is a musician. Some musicians love music. Miroslav Venhoda published a book in 1946 called Method of Studying Gregorian Chant.
@@ -201,19 +202,40 @@ Czech(miroslav) ∧ ChoralConductor(miroslav) ∧ Specialize(miroslav, renaissan
 ∃x (Musician(x) ∧ Love(x, music)) ::: Some musicians love music.
 Book(methodOfStudyingGregorianChant) ∧ Author(miroslav, methodOfStudyingGregorianChant) ∧ Publish(methodOfStudyingGregorianChant, year1946) ::: Miroslav Venhoda published a book in 1946 called Method of Studying Gregorian Chant.
 # Conclusion:
-Love(miroslav, music) ::: Miroslav Venhoda loved music.
-∃y ∃x (Czech(x) ∧ Author(x, y) ∧ Book(y) ∧ Publish(y, year1946)) ::: A Czech person wrote a book in 1946.
-¬∃x (ChoralConductor(x) ∧ Specialize(x, renaissance)) ::: No choral conductor specialized in the performance of Renaissance.
+Love(miroslav, music) ::: Miroslav Venhoda loved music. UNKNOWN
+∃y ∃x (Czech(x) ∧ Author(x, y) ∧ Book(y) ∧ Publish(y, year1946)) ::: A Czech person wrote a book in 1946. FALSE
+¬∃x (ChoralConductor(x) ∧ Specialize(x, renaissance)) ::: No choral conductor specialized in the performance of Renaissance. UNKNOWN
 ------
+
+At the end of the conclusion, in the comment (i.e. after the ':::') write at the end of the comment whether the conclusion is TRUE, FALSE, or UNKNOWN.
+^^^ This is very important!
+
+Write {num_cases} new # Question and # Conclusion sections based on the problem above.
+Include five hashtags (#####) between each section. 
+
+i.e. if you are asked to write 2 sections, then write:
+#####
+
+# Question:
+<Question 1>
+# Conclusion:
+<Conclusion 1>
+
+#####
+
+# Question:
+<Question 2>
+# Conclusion:
+<Conclusion 2>
+
 
 Here is the problem you need to work with:
 
 # Problem:
 {PROBLEM}
 
-At the end of each conclusion, in the comment (i.e. after the ':::') write at the end of the comment whether the conclusion is TRUE, FALSE, or UNKNOWN.
 
-Write the # Question and # Conclusion sections here:
+Write the # Question: and # Conclusion: sections here:
 """
 
 
@@ -232,7 +254,7 @@ Write(beethoven, symphonyNo9) ::: Beethoven wrote Symphony No. 9.
 Lead(beethoven, viennaMusicSociety) ∧ Orchestra(viennaMusicSociety) ::: Vienna Music Society is an orchestra and Beethoven leads the Vienna Music Society.
 ∀x (Orchestra(x) → ∃y (Lead(y, x) ∧ Conductor(y))) ::: Orchestras are led by conductors.
 # Conclusion:
-¬Conductor(beethoven) ::: Beethoven is not a conductor."
+¬Conductor(beethoven) ::: Beethoven is not a conductor. FALSE
 >>> Error Message:
 Parsing Error
 >>> Correct Program:
@@ -243,7 +265,7 @@ Write(beethoven, symphonyNo9) ::: Beethoven wrote Symphony No. 9.
 Lead(beethoven, viennaMusicSociety) ∧ Orchestra(viennaMusicSociety) ::: Vienna Music Society is an orchestra and Beethoven leads the Vienna Music Society.
 ∀x ∃z (¬Orchestra(x) ∨ (Lead(z,x) ∧ Conductor(z))) ::: Orchestras are led by conductors.
 # Conclusion:
-¬Conductor(beethoven) ::: Beethoven is not a conductor.
+¬Conductor(beethoven) ::: Beethoven is not a conductor. FALSE
 ------
 >>> Initial Program:
 # Predicates:
@@ -257,7 +279,7 @@ Sell(x, y) ::: x sold more than y copies.
 ∀x (Sell(x, oneMillion) → Top10(x)) ::: If a game sells more than one million copies, then it will be selected into the Top 10 list.
 Sell(legendOfZelda, oneMillion) ::: The Legend of Zelda sold more than one million copies.
 # Conclusion:
-Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list.
+Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list. TRUE
 >>> Error Message:
 Parsing Error
 >>> Correct Program:
@@ -272,7 +294,7 @@ Sell(x, y) ::: x sold more than y copies.
 ∀x (Sell(x, oneMillion) → Top10(x)) ::: If a game sells more than one million copies, then it will be selected into the Top 10 list.
 Sell(legendOfZelda, oneMillion) ::: The Legend of Zelda sold more than one million copies.
 # Conclusion:
-Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list.
+Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list. TRUE
 ------
 >>> Initial Program:
 # Predicates:
@@ -288,7 +310,7 @@ Popular(x) ::: x is popular among local residents.
 ∀x (Popular(x) → (Rating(x, y) ∧ y > 9)) ::: All restaurants that are popular among local residents have ratings greater than 9.
 Rating(subway, y) ∧ y > 9 ∨ Popular(subway) ::: Subway has a rating greater than 9 or is popular among local residents.
 # Conclusion:
-TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews.
+TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews. FALSE
 >>> Error Message:
 Parsing Error
 >>> Correct Program:
@@ -305,8 +327,11 @@ GreaterThanNine(x) ::: x has a rating greater than 9.
 ∀x (Popular(x) → GreaterThanNine(x)) ::: All restaurants that are popular among local residents have ratings greater than 9.
 GreaterThanNine(subway) ∨ Popular(subway) ::: Subway has a rating greater than 9 or is popular among local residents.
 # Conclusion:
-TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews.
+TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews. FALSE
 ------
+
+
+DO NOT write the # Problem, # Question, or # Conclusion sections!!!
 Here is the program you need to work with:
 
 >>> Initial Program:
@@ -333,7 +358,7 @@ Write(beethoven, symphonyNo9) ::: Beethoven wrote Symphony No. 9.
 Lead(beethoven, viennaMusicSociety) ∧ Orchestra(viennaMusicSociety) ::: Vienna Music Society is an orchestra and Beethoven leads the Vienna Music Society.
 ∀x (Orchestra(x) → ∃y (Lead(y, x) ∧ Conductor(y))) ::: Orchestras are led by conductors.
 # Conclusion:
-¬Conductor(beethoven) ::: Beethoven is not a conductor."
+¬Conductor(beethoven) ::: Beethoven is not a conductor. FALSE
 >>> Error Message:
 Parsing Error
 >>> Correct Program:
@@ -344,7 +369,7 @@ Write(beethoven, symphonyNo9) ::: Beethoven wrote Symphony No. 9.
 Lead(beethoven, viennaMusicSociety) ∧ Orchestra(viennaMusicSociety) ::: Vienna Music Society is an orchestra and Beethoven leads the Vienna Music Society.
 ∀x ∃z (¬Orchestra(x) ∨ (Lead(z,x) ∧ Conductor(z))) ::: Orchestras are led by conductors.
 # Conclusion:
-¬Conductor(beethoven) ::: Beethoven is not a conductor.
+¬Conductor(beethoven) ::: Beethoven is not a conductor. FALSE
 ------
 >>> Initial Program:
 # Predicates:
@@ -358,7 +383,7 @@ Sell(x, y) ::: x sold more than y copies.
 ∀x (Sell(x, oneMillion) → Top10(x)) ::: If a game sells more than one million copies, then it will be selected into the Top 10 list.
 Sell(legendOfZelda, oneMillion) ::: The Legend of Zelda sold more than one million copies.
 # Conclusion:
-Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list.
+Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list. TRUE
 >>> Error Message:
 Parsing Error
 >>> Correct Program:
@@ -373,7 +398,7 @@ Sell(x, y) ::: x sold more than y copies.
 ∀x (Sell(x, oneMillion) → Top10(x)) ::: If a game sells more than one million copies, then it will be selected into the Top 10 list.
 Sell(legendOfZelda, oneMillion) ::: The Legend of Zelda sold more than one million copies.
 # Conclusion:
-Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list.
+Top10(legendOfZelda) ::: The Legend of Zelda is in the Top 10 list. TRUE
 ------
 >>> Initial Program:
 # Predicates:
@@ -389,7 +414,7 @@ Popular(x) ::: x is popular among local residents.
 ∀x (Popular(x) → (Rating(x, y) ∧ y > 9)) ::: All restaurants that are popular among local residents have ratings greater than 9.
 Rating(subway, y) ∧ y > 9 ∨ Popular(subway) ::: Subway has a rating greater than 9 or is popular among local residents.
 # Conclusion:
-TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews.
+TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews. FALSE
 >>> Error Message:
 Parsing Error
 >>> Correct Program:
@@ -406,9 +431,10 @@ GreaterThanNine(x) ::: x has a rating greater than 9.
 ∀x (Popular(x) → GreaterThanNine(x)) ::: All restaurants that are popular among local residents have ratings greater than 9.
 GreaterThanNine(subway) ∨ Popular(subway) ::: Subway has a rating greater than 9 or is popular among local residents.
 # Conclusion:
-TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews.
+TakeOut(subway) ∧ ¬NegativeReviews(subway) ::: Subway provides take-out service and does not receive many negative reviews. FALSE
 ------
 
+DO NOT write the # Problem, # Predicates, or # Premises sections!!!
 Here is the program you need to work with:
 >>> Initial Program:
 {PROGRAM}

@@ -25,8 +25,8 @@ class FOL_Prover9_Program:
     def parse_logic_program(self):
         try:        
             # Split the string into premises and conclusion
-            premises_string = self.logic_program.split("Conclusion:")[0].split("Premises:")[1].strip()
-            conclusion_string = self.logic_program.split("Conclusion:")[1].strip()
+            premises_string = self.logic_program.split("# Conclusion:")[0].split("# Premises:")[1].strip()
+            conclusion_string = self.logic_program.split("# Conclusion:")[1].strip()
 
             # Extract each premise and the conclusion using regex
             premises = premises_string.strip().split('\n')
@@ -44,15 +44,17 @@ class FOL_Prover9_Program:
                 prover9_rule = Prover9_FOL_Formula(fol_rule)
                 self.prover9_premises.append(prover9_rule.formula)
 
-            fol_conclusion = FOL_Formula(self.logic_conclusion)
+            fol_conclusion = FOL_Formula(self.logic_conclusion) # FOL_Formula is a class that parses the FOL formula
             if fol_conclusion.is_valid == False:
                 return False
             self.prover9_conclusion = Prover9_FOL_Formula(fol_conclusion).formula
             return True
         except Exception as e:
             print(f"Error parsing logic program: {e}")
+            if e == "'FOL_Prover9_Program' object has no attribute 'prover9_conclusion'":
+                self.syntax_error = "Error parsing logic program: Check that your syntax is correct."
             self.syntax_error = "Error parsing logic program: " + str(e)
-            return False
+            return e
 
     def execute_program(self):
         try:
@@ -210,10 +212,10 @@ class FOL_Prover9_Program:
 
 if __name__ == "__main__":
     # Test with a simple True case
-    simple_logic = """Premises:
+    simple_logic = """# Premises:
     ∀x (Human(x) → Mortal(x)) ::: All humans are mortal.
     Human(socrates) ::: Socrates is human.
-    Conclusion:
+    # Conclusion:
     Mortal(socrates) ::: Socrates is mortal."""
 
     prover9_program = FOL_Prover9_Program(simple_logic)

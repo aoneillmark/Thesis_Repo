@@ -5,7 +5,7 @@ from collections import deque, defaultdict
 
 from suite_manager import SuiteManager
 from utils import generate_content
-from prompts import PROGRAM_SYNTAX_REPAIR_PROMPT, TEST_SYNTAX_REPAIR_PROMPT, Z3_CANDIDATE_SOLUTION_PROMPT
+from prompts import PROGRAM_SYNTAX_REPAIR_PROMPT, FOLIO_CANDIDATE_SOLUTION_PROMPT, FOLIO_TEST_CASE_REPAIR_PROMPT
 from prolog_compiler import consult 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -173,14 +173,22 @@ def repair_program(sm: SuiteManager, p_idx: int, failing_tests):
         for err in tc.syntax_errors
         if err in err_msgs  # only shared syntax issues
     )
+    print(f"Repairing program {p_idx} with prompt:\n{failing_snips}\n")
 
     prompt = PROGRAM_SYNTAX_REPAIR_PROMPT.format(
-        program=sol.canonical_program,
-        errors=failing_snips if failing_snips else "none captured",
+        PROGRAM=sol.canonical_program,
+        ERROR_MESSAGE=failing_snips if failing_snips else "none captured",
     )
     patched = generate_content(prompt)
+    original = sol.raw_logic
     if patched:
-        sol.original_program = patched.strip()
+        try:
+            sol.raw_logic = patched.strip()
+            sol.predicates, sol.premises = sol._split_predicates_premises(sol.raw_logic)
+
+        except Exception as e:
+            sol.raw_logic = original  # revert on error
+            print(f"Error repairing program {p_idx}: {e}")
 
 
 def repair_test(sm: SuiteManager, t_idx: int, failing_progs):
@@ -229,16 +237,27 @@ def repair_test(sm: SuiteManager, t_idx: int, failing_progs):
         sol = failing_progs[0]
         prog_snips = sol.canonical_program + "\n% syntax error: (no matching error)"
 
-    prompt = TEST_SYNTAX_REPAIR_PROMPT.format(
-        prog_snips=prog_snips.strip(),
-        failing_query=tc.original_block,
+    print(f"Repairing test {t_idx} with prompt:\n{prog_snips}\n")
+
+    prompt = FOLIO_TEST_CASE_REPAIR_PROMPT.format(
+        PROGRAM=prog_snips.strip(),
+        ERROR_MESSAGE=tc.original_block,
     )
 
-    print(f"Repairing test {t_idx} with prompt:\n{prompt}\n")
-
     updated = generate_content(prompt)
+    original = tc.original_block
     if updated:
-        tc.original_block = updated.strip()
+        try:
+            tc.original_block = updated.strip()
+
+            print(f"Updated test case {t_idx}:\n{tc.original_block}\n")
+            tc.question, tc.conclusion = tc._split_questions_conclusions(tc.original_block)
+            tc.correct_label = tc.extract_correct_label()
+
+        except Exception as e:
+            print(f"⚠️  Failed to update test case {t_idx}:\n{e}\n")
+            # If parsing fails, revert to original
+            tc.original_block = original
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -536,14 +555,14 @@ def main() -> None:
     """
 
     problem_text = (
-        "Of the eight students—George, Helen, Irving, Kyle, Lenore, Nina, Olivia, "
-        "and Robert—in a seminar, exactly six will give individual oral reports "
-        "during three consecutive days—Monday, Tuesday, and Wednesday. Exactly two "
-        "reports will be given each day—one in the morning and one in the afternoon—"
-        "according to the following conditions: Tuesday is the only day on which "
-        "George can give a report. Neither Olivia nor Robert can give an afternoon "
-        "report. If Nina gives a report, then on the next day Helen and Irving must "
-        "both give reports, unless Nina's report is given on Wednesday."
+"""
+If people perform in school talent shows often, then they attend and are very engaged with school events. 
+People either perform in school talent shows often or are inactive and disinterested members of their community. 
+If people chaperone high school dances, then they are not students who attend the school. 
+All people who are inactive and disinterested members of their community chaperone high school dances. 
+All young children and teenagers who wish to further their academic careers and educational opportunities are students who attend the school. 
+Bonnie either both attends and is very engaged with school events and is a student who attends the school, or she neither attends and is very engaged with school events nor is a student who attends the school.
+"""
     )
 
     n_tests      = 2   # how many MCQ blocks to generate
@@ -555,23 +574,26 @@ def main() -> None:
     sm.generate_test_cases(n_tests, problem_text)
 
     test_cases_text = "\n Here are the test cases:\n" + "\n".join(tc.canonical_block for tc in sm.test_cases)
-    base_prompt = Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text)
-    
-    prompts = [
-        base_prompt + test_cases_text
-        for idx in range(n_solutions)
-    ]
+    questions = "\n".join(tc.questions for tc in sm.test_cases)
+    conclusions = "\n".join(tc.conclusions for tc in sm.test_cases)
 
-    # print length of each individual prompt
-    for i, prompt in enumerate(prompts):
-        print(f"Prompt {i+1} length: {len(prompt)} characters")
-        # rough conversion to tokens (assuming 4 characters per token)
-        print(f"Approx. tokens: {len(prompt) // 4}")
-        # Comparison with the original prompt length
-    print(f"Original prompt length: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text))} characters")
-    print(f"Approx. tokens: {len(Z3_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text)) // 4}")
+    base_prompt = FOLIO_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text, QUESTION=questions, CONCLUSION=conclusions)
+    print(f"Base prompt is:\n{base_prompt}\n")
+    # prompts = [
+    #     base_prompt + test_cases_text
+    #     for idx in range(n_solutions)
+    # ]
 
-    sm.generate_candidate_solutions(n_solutions, problem_text, prompts)
+    # # print length of each individual prompt
+    # for i, prompt in enumerate(prompts):
+    #     print(f"Prompt {i+1} length: {len(prompt)} characters")
+    #     # rough conversion to tokens (assuming 4 characters per token)
+    #     print(f"Approx. tokens: {len(prompt) // 4}")
+    #     # Comparison with the original prompt length
+    # print(f"Original prompt length: {len(FOLIO_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text))} characters")
+    # print(f"Approx. tokens: {len(FOLIO_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=problem_text)) // 4}")
+
+    sm.generate_candidate_solutions(n_solutions, problem_text, prompts=[base_prompt] * n_solutions)
 
     # 2️⃣  Vocabulary-alignment loop
     aligned = run_vocab_alignment(
