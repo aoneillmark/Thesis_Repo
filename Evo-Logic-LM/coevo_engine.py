@@ -15,7 +15,7 @@
 #
 #   sm = SuiteManager()                 # with *vocab-clean* initial pop
 #   ... (seed sm via your existing flow) ...
-#   engine = CoCoEvoEngine(sm, contract_text)
+#   engine = CoCoEvoEngine(sm, problem_text)
 #   engine.run()                        # in-place evolution - populations live in sm
 #
 # ───────────────────────────────────────────────────────────────────────────────
@@ -41,11 +41,16 @@ from suite_manager import SuiteManager, CandidateSolution, TestCase
 from evolve import run_vocab_alignment                 # Stage-1 repair
 from utils import generate_content                     # → calls the LLM
 from prompts import (
+    # PROGRAM_CROSSOVER_PROMPT,
+    # PROGRAM_MUTATION_PROMPT,
+    # TEST_MUTATION_PROMPT,
+    # TEST_GENERATION_PROMPT,
+    # PROLOG_GENERATION_PROMPT
+    FOLIO_CANDIDATE_SOLUTION_PROMPT,
+    FOLIO_SINGLE_TEST_GENERATION,
     PROGRAM_CROSSOVER_PROMPT,
     PROGRAM_MUTATION_PROMPT,
-    TEST_MUTATION_PROMPT,
-    TEST_GENERATION_PROMPT,
-    PROLOG_GENERATION_PROMPT
+
 )
 
 # ---------------------------------------------------------------------------
@@ -161,14 +166,14 @@ class CoCoEvoEngine:
     # ---------------------------------------------------------------------
     def __init__(self,
                  suite_manager: SuiteManager,
-                 contract_text: str,
+                 problem_text: str,
                  max_generations: int = 50,
                  pop_cap_programs: int = 30,
                  pop_cap_tests: int = 30,
                  max_reseed_attempts: int = 5,
                  rng_seed: Optional[int] = None):
         self.sm = suite_manager
-        self.contract_text = contract_text
+        self.problem_text = problem_text
         self.max_generations = max_generations
         self.pop_cap_programs = pop_cap_programs
         self.pop_cap_tests = pop_cap_tests
@@ -205,26 +210,21 @@ class CoCoEvoEngine:
         #     self._spawn_program()
         # for _ in range(self.pop_cap_tests):
         #     self._spawn_test()
-        
-        super_secret_prompt = "\n\nAdditionally, here are the test cases you will be tested on; make sure to match the predicate signature and arity. {test_cases}"
 
-        sol_prompts = [
-            (lambda ct, p=PROLOG_GENERATION_PROMPT, secret=super_secret_prompt: 
-            p.format(contract_text=ct) + secret.format(
-                test_cases="\n".join(tc.original_fact for tc in self.sm.test_cases)))
-            for _ in range(self.pop_cap_programs)
-        ]
+        # Re-seed tests
+        self.sm.generate_test_cases(self.pop_cap_tests, self.problem_text)
 
-        self.sm.generate_solutions(
-            num_solutions=self.pop_cap_programs,
-            contract_text=self.contract_text,
-            prompt_fns=sol_prompts
-        )
-        
-        self.sm.generate_solutions(
-            num_solutions=self.pop_cap_programs,
-            contract_text=self.contract_text,
-        )
+        questions = "\n".join(tc.questions for tc in self.sm.test_cases)
+        conclusions = "\n".join(tc.conclusions for tc in self.sm.test_cases)
+
+        base_prompt = FOLIO_CANDIDATE_SOLUTION_PROMPT.format(PROBLEM=self.problem_text, QUESTION=questions, CONCLUSION=conclusions)
+
+        self.sm.generate_candidate_solutions(num_solution=self.pop_cap_programs, problem_text=self.problem_text, prompts=[base_prompt] * self.pop_cap_programs)
+
+        # self.sm.generate_solutions(
+        #     num_solutions=self.pop_cap_programs,
+        #     problem_text=self.problem_text,
+        # )
 
         # One final vocab alignment pass for the brand-new population
         self._ensure_vocab_alignment()
@@ -255,9 +255,9 @@ class CoCoEvoEngine:
     # --------------------------------------------------------------
     def _program_feedback(self, p_idx: int) -> Dict:
         status = self.logic_matrix[p_idx]              # 1 = pass, 0 = fail
-        failing = [self.sm.test_cases[j].original_fact
+        failing = [self.sm.test_cases[j].canonical_block
                 for j, ok in enumerate(status) if not ok]
-        passing  = [self.sm.test_cases[j].original_fact
+        passing  = [self.sm.test_cases[j].canonical_block
                 for j, ok in enumerate(status) if ok]
         return {"failing": failing, "passing": passing}
 
@@ -266,11 +266,18 @@ class CoCoEvoEngine:
     # (C) Spawn tests *with feedback*
     # --------------------------------------------------------------
     def _spawn_test_feedback(self, feedback: Dict) -> Optional[int]:
-        prompt = TEST_GENERATION_PROMPT.format(
-            contract_text=self.contract_text,
-            program=self._best_program()[1].original_program,
-            failing="\n".join(feedback["failing"][:5]),  # show up to 5
-            passing="\n".join(feedback["passing"][:5]),
+        # prompt = FOLIO_SINGLE_TEST_GENERATION.format(
+        #     PROBLEM=self.problem_text,
+        #     PROGRAM=self._best_program()[1].canonical_program,
+        #     FAILING="\n".join(feedback["failing"][:5]),  # show up to 5
+        #     PASSING="\n".join(feedback["passing"][:5]),
+        #     PRELUDE="You will also be shown the best program so far, as well as all current tests. Use this information to generate a new test case that is challenging for the program, but still valid.",
+        # )
+        prompt = FOLIO_SINGLE_TEST_GENERATION.format(
+            PROBLEM=self.problem_text,
+            PROGRAM=self._best_program()[1].canonical_program,
+            TESTS="\n".join(tc.canonical_block for tc in self.sm.test_cases),
+            PRELUDE="You will also be shown the best program so far, as well as all current tests. Create a new question that tests a new aspect of the program that is not already covered by the existing tests.",
         )
         raw = generate_content(prompt)
         if not raw or not raw.strip():
@@ -287,7 +294,7 @@ class CoCoEvoEngine:
 
         # Filter out solutions whose program failed to compile / is empty
         valid_pairs = [(i, s) for i, s in enumerate(self.sm.solutions)
-                       if (s.original_program and s.original_program.strip())]
+                       if (s.canonical_program and s.canonical_program.strip())]
         if len(valid_pairs) < len(self.sm.solutions):
             self.sm.solutions = [s for _, s in valid_pairs]
             self.logic_matrix = [self.logic_matrix[i] for i, _ in valid_pairs]
@@ -343,9 +350,9 @@ class CoCoEvoEngine:
     # 4) LLM-driven genetic operators ------------------------------------
     def _crossover_programs(self, p1: CandidateSolution, p2: CandidateSolution) -> str:
         prompt = PROGRAM_CROSSOVER_PROMPT.format(
-            parent_a=p1.original_program,
-            parent_b=p2.original_program,
-            contract_text=self.contract_text,
+            parent_a=p1.canonical_program,
+            parent_b=p2.canonical_program,
+            PROBLEM=self.problem_text,
         )
         result = generate_content(prompt)
         if not result:
@@ -354,8 +361,8 @@ class CoCoEvoEngine:
 
     def _mutate_program(self, prog: CandidateSolution) -> str:
         prompt = PROGRAM_MUTATION_PROMPT.format(
-            program=prog.original_program,
-            contract_text=self.contract_text,
+            program=prog.canonical_program,
+            PROBLEM=self.problem_text,
         )
         result = generate_content(prompt)
         if not result:
@@ -372,8 +379,8 @@ class CoCoEvoEngine:
             print("LLM returned empty program - spawn aborted.")
             return None, None
         
-        child = CandidateSolution(self.contract_text, program_text=raw)
-        if not child.original_program or not child.original_program.strip():
+        child = CandidateSolution(self.problem_text, logic_snippet=raw)
+        if not child.canonical_program or not child.canonical_program.strip():
             print("❌ Spawned program is empty or invalid.")
             return None, None
 
@@ -381,15 +388,15 @@ class CoCoEvoEngine:
         return len(self.sm.solutions) - 1, child
 
     # --------------------------  TESTS  ----------------------------------
-    def _mutate_test(self, tc: TestCase) -> str:
-        prompt = TEST_MUTATION_PROMPT.format(
-            test=tc.original_fact,
-            contract_text=self.contract_text,
-        )
-        result = generate_content(prompt)
-        if not result:
-            print("Test mutation failed - empty result from LLM.")
-        return result or ""
+    # def _mutate_test(self, tc: TestCase) -> str:
+    #     prompt = TEST_MUTATION_PROMPT.format(
+    #         test=tc.canonical_block,
+    #         PROBLEM=self.problem_text,
+    #     )
+    #     result = generate_content(prompt)
+    #     if not result:
+    #         print("Test mutation failed - empty result from LLM.")
+    #     return result or ""
 
     # def _spawn_test(self) -> Tuple[Optional[int], Optional[TestCase]]:
     #     """Spawn a *predicate-shape-preserving* test case.
@@ -419,7 +426,7 @@ class CoCoEvoEngine:
     #             """ # This is an example of the format you should use, but make sure to use the predicate signatures provided in the exemplar tests later: \n % Args: Name, Age, Activity \n test("Scenario description", is_claim_covered("John", 67, "skydiving")).
     #         )
     #         prompt = (
-    #             f"{TEST_GENERATION_PROMPT.format(contract_text=self.contract_text)}\n\n{guidance}\n\n"  # base task description
+    #             f"{TEST_GENERATION_PROMPT.format(problem_text=self.problem_text)}\n\n{guidance}\n\n"  # base task description
     #             f"# Exemplar tests (keep shape)\n{exemplars}\n\n# → New test:"
     #         )
     #         raw = generate_content(prompt)

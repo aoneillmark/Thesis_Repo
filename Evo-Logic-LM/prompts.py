@@ -150,9 +150,9 @@ Write the # Predicates: and # Premises: sections here:
 
 
 FOLIO_TEST_SUITE_PROMPT = FOLIO_NOTATION_SUMMARY + """
-Given a problem description and a question. The task is to parse the problem, create a new question based on that problem, and translate it into first-order logic.
+Given a problem description and a question. The task is to parse the problem, create new questions based on that problem, and translate them into first-order logic.
 
-Your job SPECIFICALLY is to create a new question based on the problem, and generate the Conclusion section in first-order logic that can be answered with the predicates and premises that will be generated separately.
+Your job SPECIFICALLY is to create new questions based on the problem, and generate the Conclusion sections in first-order logic that can be answered with the predicates and premises that will be generated separately.
 You do not need to write the # Problem, # Predicates, or # Premises sections.
 You should only write the # Question and # Conclusion sections.
 
@@ -210,7 +210,7 @@ Love(miroslav, music) ::: Miroslav Venhoda loved music. UNKNOWN
 At the end of the conclusion, in the comment (i.e. after the ':::') write at the end of the comment whether the conclusion is TRUE, FALSE, or UNKNOWN.
 ^^^ This is very important!
 
-Write {num_cases} new # Question and # Conclusion sections based on the problem above.
+Write {num_cases} new # Question and # Conclusion sections based on the problem below.
 Include five hashtags (#####) between each section. 
 
 i.e. if you are asked to write 2 sections, then write:
@@ -442,4 +442,157 @@ Here is the program you need to work with:
 {ERROR_MESSAGE}
 >>> Corrected Program:
 
+"""
+
+
+
+########################################################
+
+PROGRAM_CROSSOVER_PROMPT = FOLIO_NOTATION_SUMMARY + """
+You are merging **two** independently written first-order logic encodings of the same
+problem scenario into a single, higher-quality child program.
+
+================  CONTEXT  ================
+--- SCENARIO INFORMATION ---
+{PROBLEM}
+
+--- PARENT A ---
+{parent_a}
+
+--- PARENT B ---
+{parent_b}
+===========================================
+
+TASK
+----
+1. Combine the strengths of both parents: keep logically correct rules,
+   deduplicate or reconcile conflicting clauses.
+2. Ensure you keep the same format, including # Predicates: and # Premises: sections.
+3. Do not write any # Problem, # Question, or # Conclusion sections.
+4. Generally keep the same vocabulary.
+"""
+
+
+
+# † Variables injected: {contract_text}, {program}
+PROGRAM_MUTATION_PROMPT = """
+You are improving a first-order logic encoding of the problem scenario shown below.
+Make edits that fix bugs, add missing edge-cases, or simplify logic.
+
+================  CONTEXT  ================
+--- SCENARIO INFORMATION ---
+{PROBLEM}
+
+--- CURRENT PROGRAM ---
+{program}
+===========================================
+
+TASK
+----
+1. Your task is to write a new program that is different from this program, which satisfies the same problem.
+2. Ensure you keep the correct format, including # Predicates: and # Premises: sections.
+3. Do not write any # Problem, # Question, or # Conclusion sections.
+4. Generally keep the same vocabulary.
+"""
+
+# # † Variables injected: {contract_text}, {test}
+# TEST_MUTATION_PROMPT = """
+# You are mutating ONE first-order-logic test case (question & conclusion) for the problem scenario below in order
+# to explore a *different* question while keeping the same vocabulary.
+
+# ================  CONTEXT  ================
+# --- PROBLEM SCENARIO ---
+# {contract_text}
+
+# --- ORIGINAL TEST ---
+# {test}
+# ===========================================
+
+# GUIDELINES
+# ----------
+# 1. Your task is to write a new test that is different from this test, which satisfies the same problem.
+# 2. Ideally this new test explores a different aspect of the problem, or an edge-case.
+# 3. Ensure you keep the correct format, including # Question: and # Conclusion: sections.
+# 4. Do not write any # Problem, # Predicates, or # Premises sections.
+# 5. Generally keep the same vocabulary.
+# 6. Do not use the same question as the original test.
+# """
+
+
+
+
+FOLIO_SINGLE_TEST_GENERATION = FOLIO_NOTATION_SUMMARY + """
+Given a problem description and a question. The task is to parse the problem, create a new question based on that problem, and translate it into first-order logic.
+
+Your job SPECIFICALLY is to create a new question based on the problem, and generate the Conclusion section in first-order logic that can be answered with the predicates and premises that will be generated separately.
+You do not need to write the # Problem, # Predicates, or # Premises sections.
+You should only write the # Question and # Conclusion sections.
+
+I will provide you with some examples:
+------
+# Problem:
+All people who regularly drink coffee are dependent on caffeine. People either regularly drink coffee or joke about being addicted to caffeine. No one who jokes about being addicted to caffeine is unaware that caffeine is a drug. Rina is either a student and unaware that caffeine is a drug, or neither a student nor unaware that caffeine is a drug. If Rina is not a person dependent on caffeine and a student, then Rina is either a person dependent on caffeine and a student, or neither a person dependent on caffeine nor a student.
+# Question:
+Based on the above information, is the following statement true, false, or uncertain? Rina is either a person who jokes about being addicted to caffeine or is unaware that caffeine is a drug.
+Based on the above information, is the following statement true, false, or uncertain? If Rina is either a person who jokes about being addicted to caffeine and a person who is unaware that caffeine is a drug, or neither a person who jokes about being addicted to caffeine nor a person who is unaware that caffeine is a drug, then Rina jokes about being addicted to caffeine and regularly drinks coffee.
+###
+# Predicates:
+Dependent(x) ::: x is a person dependent on caffeine.
+Drinks(x) ::: x regularly drinks coffee.
+Jokes(x) ::: x jokes about being addicted to caffeine.
+Unaware(x) ::: x is unaware that caffeine is a drug.
+Student(x) ::: x is a student.
+# Premises:
+∀x (Drinks(x) → Dependent(x)) ::: All people who regularly drink coffee are dependent on caffeine.
+∀x (Drinks(x) ⊕ Jokes(x)) ::: People either regularly drink coffee or joke about being addicted to caffeine.
+∀x (Jokes(x) → ¬Unaware(x)) ::: No one who jokes about being addicted to caffeine is unaware that caffeine is a drug. 
+(Student(rina) ∧ Unaware(rina)) ⊕ ¬(Student(rina) ∨ Unaware(rina)) ::: Rina is either a student and unaware that caffeine is a drug, or neither a student nor unaware that caffeine is a drug. 
+¬(Dependent(rina) ∧ Student(rina)) → (Dependent(rina) ∧ Student(rina)) ⊕ ¬(Dependent(rina) ∨ Student(rina)) ::: If Rina is not a person dependent on caffeine and a student, then Rina is either a person dependent on caffeine and a student, or neither a person dependent on caffeine nor a student.
+# Conclusion:
+Jokes(rina) ⊕ Unaware(rina) ::: Rina is either a person who jokes about being addicted to caffeine or is unaware that caffeine is a drug. TRUE
+((Jokes(rina) ∧ Unaware(rina)) ⊕ ¬(Jokes(rina) ∨ Unaware(rina))) → (Jokes(rina) ∧ Drinks(rina)) ::: If Rina is either a person who jokes about being addicted to caffeine and a person who is unaware that caffeine is a drug, or neither a person who jokes about being addicted to caffeine nor a person who is unaware that caffeine is a drug, then Rina jokes about being addicted to caffeine and regularly drinks coffee. FALSE
+------
+# Problem:
+Miroslav Venhoda was a Czech choral conductor who specialized in the performance of Renaissance and Baroque music. Any choral conductor is a musician. Some musicians love music. Miroslav Venhoda published a book in 1946 called Method of Studying Gregorian Chant.
+# Question:
+Based on the above information, is the following statement true, false, or uncertain? Miroslav Venhoda loved music.
+Based on the above information, is the following statement true, false, or uncertain? A Czech person wrote a book in 1946.
+Based on the above information, is the following statement true, false, or uncertain? No choral conductor specialized in the performance of Renaissance.
+###
+# Predicates:
+Czech(x) ::: x is a Czech person.
+ChoralConductor(x) ::: x is a choral conductor.
+Musician(x) ::: x is a musician.
+Love(x, y) ::: x loves y.
+Author(x, y) ::: x is the author of y.
+Book(x) ::: x is a book.
+Publish(x, y) ::: x is published in year y.
+Specialize(x, y) ::: x specializes in y.
+# Premises:
+Czech(miroslav) ∧ ChoralConductor(miroslav) ∧ Specialize(miroslav, renaissance) ∧ Specialize(miroslav, baroque) ::: Miroslav Venhoda was a Czech choral conductor who specialized in the performance of Renaissance and Baroque music.
+∀x (ChoralConductor(x) → Musician(x)) ::: Any choral conductor is a musician.
+∃x (Musician(x) ∧ Love(x, music)) ::: Some musicians love music.
+Book(methodOfStudyingGregorianChant) ∧ Author(miroslav, methodOfStudyingGregorianChant) ∧ Publish(methodOfStudyingGregorianChant, year1946) ::: Miroslav Venhoda published a book in 1946 called Method of Studying Gregorian Chant.
+# Conclusion:
+Love(miroslav, music) ::: Miroslav Venhoda loved music. UNKNOWN
+∃y ∃x (Czech(x) ∧ Author(x, y) ∧ Book(y) ∧ Publish(y, year1946)) ::: A Czech person wrote a book in 1946. FALSE
+¬∃x (ChoralConductor(x) ∧ Specialize(x, renaissance)) ::: No choral conductor specialized in the performance of Renaissance. UNKNOWN
+------
+{PRELUDE}
+{PROGRAM}
+{TESTS}
+
+
+At the end of the conclusion, in the comment (i.e. after the ':::') write at the end of the comment whether the conclusion is TRUE, FALSE, or UNKNOWN.
+^^^ This is very important!
+
+Write a SINGLE new # Question and # Conclusion section based on the problem below.
+
+Here is the problem you need to work with:
+
+# Problem:
+{PROBLEM}
+
+
+Write the # Question: and # Conclusion: sections here:
 """

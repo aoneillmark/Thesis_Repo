@@ -17,8 +17,8 @@ Bonnie either both attends and is very engaged with school events and is a stude
 """
     )
 
-    n_tests      = 2   # how many MCQ blocks to generate
-    n_solutions  = 2   # how many candidate programmes to spawn
+    n_tests      = 5   # how many MCQ blocks to generate
+    n_solutions  = 5   # how many candidate programmes to spawn
     log_root     = "runs"  # folder for all logs
 
 
@@ -38,8 +38,8 @@ Bonnie either both attends and is very engaged with school events and is a stude
 
     # ── 3. Stage-2: logic-level co-evolution ───────────────────────────
     engine = CoCoEvoEngine(sm,
-                           contract_text,
-                           max_generations=10,     # tweak as desired
+                           problem_text=problem_text,
+                           max_generations=5,     # tweak as desired
                            pop_cap_programs=10,
                            pop_cap_tests=10,
                            max_reseed_attempts=5  # number of reseeds if initial pop fails vocab alignment

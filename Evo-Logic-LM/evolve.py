@@ -573,7 +573,7 @@ Bonnie either both attends and is very engaged with school events and is a stude
     sm = SuiteManager(log_root=log_root)
     sm.generate_test_cases(n_tests, problem_text)
 
-    test_cases_text = "\n Here are the test cases:\n" + "\n".join(tc.canonical_block for tc in sm.test_cases)
+    # test_cases_text = "\n Here are the test cases:\n" + "\n".join(tc.canonical_block for tc in sm.test_cases)
     questions = "\n".join(tc.questions for tc in sm.test_cases)
     conclusions = "\n".join(tc.conclusions for tc in sm.test_cases)
 

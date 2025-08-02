@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from logging_utils import LogManager
-from fol_solver.prover9_solver import FOL_Prover9_Program  # ✅ New solver
+from fol_solver.prover9_solver import FOL_Prover9_Program  
 
 # _VOCAB_ERR_PATTERNS = ("syntax", "parse", "undeclared", "NameError", "unknown")
 # _LOGIC_ERR_PATTERNS = ("false", "unsat", "fail")
@@ -30,18 +30,35 @@ class Evaluator:
         self.vocab_matrix: List[List[int]] = []
         self.errors_matrix: List[List[str]] = []
 
-    def _dump_combined(self, solutions, test_cases, folder: Path):
-        folder.mkdir(parents=True, exist_ok=True)
+    # def _dump_combined(self, solutions, test_cases, folder: Path):
+    #     folder.mkdir(parents=True, exist_ok=True)
+    #     for sol in solutions:
+    #         for tc in test_cases:
+    #             combo = "# Question:" + "\n" + tc.questions + "\n\n" + "# Predicates:" + "\n" + sol.predicates + "\n\n" + "# Premises:" + "\n" + sol.premises + "\n\n" + "# Conclusion:" + "\n" + tc.conclusions
+    #             (folder / f"{sol.id}__{tc.id}.fol.txt").write_text(combo, encoding="utf-8")
+
+    def _dump_solutions(self, solutions, folder: Path):
+        sol_dir = folder / "solutions"
+        sol_dir.mkdir(parents=True, exist_ok=True)
         for sol in solutions:
-            for tc in test_cases:
-                combo = "# Question:" + "\n" + tc.questions + "\n\n" + "# Predicates:" + "\n" + sol.predicates + "\n\n" + "# Premises:" + "\n" + sol.premises + "\n\n" + "# Conclusion:" + "\n" + tc.conclusions
-                (folder / f"{sol.id}__{tc.id}.fol.txt").write_text(combo, encoding="utf-8")
+            sol_text = "# Predicates:\n" + sol.predicates + "\n\n# Premises:\n" + sol.premises
+            (sol_dir / f"{sol.id}.sol.fol").write_text(sol_text, encoding="utf-8")
+
+    def _dump_tests(self, test_cases, folder: Path):
+        test_dir = folder / "tests"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        for tc in test_cases:
+            test_text = "# Question:\n" + tc.questions + "\n\n# Conclusion:\n" + tc.conclusions
+            (test_dir / f"{tc.id}.test.fol").write_text(test_text, encoding="utf-8")
 
     def evaluate(self, solutions, test_cases, scope: str):
         workdir = self.logm.path(scope)
         print(f"\n--- 🏆 FOL-Eval @ {workdir.relative_to(self.logm.run_dir)} ---")
 
-        self._dump_combined(solutions, test_cases, workdir / "combined_programs")
+        # self._dump_combined(solutions, test_cases, workdir / "combined_programs")
+        self._dump_solutions(solutions, workdir)
+        self._dump_tests(test_cases, workdir)
+
         self.logic_matrix, self.vocab_matrix, self.errors_matrix = [], [], []
 
         for sol in solutions:
